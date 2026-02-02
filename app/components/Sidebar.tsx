@@ -104,7 +104,7 @@ export default function Sidebar({
           type="file"
           accept=".csv"
           multiple
-          className="hidden"
+          className="absolute h-0 w-0 overflow-hidden opacity-0"
           onChange={(e) => e.target.files && handleUpload(e.target.files)}
         />
         {isUploading ? (

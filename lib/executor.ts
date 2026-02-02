@@ -42,13 +42,16 @@ export async function executePython(
   } catch { /* dir may not exist yet */ }
 
   return new Promise((resolve) => {
-    const proc = spawn('python3', ['-c', code], {
+    const venvPython = path.join(process.cwd(), '.venv', 'bin', 'python3')
+    const proc = spawn(venvPython, ['-c', code], {
       cwd,
       timeout,
       env: {
         ...process.env,
         PYTHONIOENCODING: 'utf-8',
         MPLBACKEND: 'Agg',
+        VIRTUAL_ENV: path.join(process.cwd(), '.venv'),
+        PATH: `${path.join(process.cwd(), '.venv', 'bin')}:${process.env.PATH}`,
       },
     })
 
