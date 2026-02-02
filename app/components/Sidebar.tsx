@@ -36,8 +36,9 @@ export default function Sidebar({
 
         if (!res.ok) throw new Error("Upload failed");
 
-        const data = await res.json();
-        onFilesUploaded(data.files, data.charts || []);
+        const json = await res.json();
+        const payload = json.data || json;
+        onFilesUploaded(payload.files, payload.charts || []);
       } catch (err) {
         console.error("Upload error:", err);
       } finally {
@@ -77,7 +78,7 @@ export default function Sidebar({
     >
       {/* Header */}
       <div className="border-b p-4" style={{ borderColor: "var(--border-color)" }}>
-        <h1 className="text-lg font-bold" style={{ color: "var(--accent-blue)" }}>
+        <h1 className="text-lg font-bold" style={{ color: "var(--accent)" }}>
           VibeSemantic
         </h1>
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -91,7 +92,7 @@ export default function Sidebar({
           isDragging ? "border-blue-400 bg-blue-400/10" : ""
         }`}
         style={{
-          borderColor: isDragging ? "var(--accent-blue)" : "var(--border-color)",
+          borderColor: isDragging ? "var(--accent)" : "var(--border-color)",
         }}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -110,10 +111,10 @@ export default function Sidebar({
           <div className="flex items-center gap-2">
             <div
               className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
-              style={{ borderColor: "var(--accent-blue)", borderTopColor: "transparent" }}
+              style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
             />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              업로드 중...
+              Uploading...
             </span>
           </div>
         ) : (
@@ -130,7 +131,7 @@ export default function Sidebar({
               <path d="M12 16V4m0 0L8 8m4-4l4 4M4 20h16" />
             </svg>
             <span className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              CSV 파일을 드래그하거나 클릭
+              Drop CSV or click to upload
             </span>
           </>
         )}
@@ -142,11 +143,11 @@ export default function Sidebar({
           className="mb-2 text-xs font-medium uppercase tracking-wider"
           style={{ color: "var(--text-secondary)" }}
         >
-          데이터 파일 ({files.length})
+          Data Files ({files.length})
         </p>
         {files.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-            아직 업로드된 파일이 없습니다
+            No files uploaded yet
           </p>
         ) : (
           <ul className="space-y-1">
@@ -160,10 +161,10 @@ export default function Sidebar({
                   className="h-3 w-3 rounded-sm border"
                   style={{
                     borderColor: selectedFileIds.includes(file.id)
-                      ? "var(--accent-blue)"
+                      ? "var(--accent)"
                       : "var(--border-color)",
                     background: selectedFileIds.includes(file.id)
-                      ? "var(--accent-blue)"
+                      ? "var(--accent)"
                       : "transparent",
                   }}
                 />

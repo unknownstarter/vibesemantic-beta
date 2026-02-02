@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import type { ChartData } from "../page";
 
-const COLORS = ["#4f8fff", "#8b5cf6", "#22c55e", "#f59e0b", "#ec4899", "#06b6d4", "#f43f5e"];
+const COLORS = ["#ffffff", "#c0c0c0", "#909090", "#686868", "#484848", "#303030", "#1a1a1a"];
 
 interface ChartCardProps {
   chart: ChartData;
@@ -76,7 +76,7 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin }: ChartCardPr
                 color: "var(--text-primary)",
               }}
             />
-            <Bar dataKey={yKey} fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
+            <Bar dataKey={yKey} fill="var(--accent)" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       );
@@ -100,7 +100,7 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin }: ChartCardPr
             <Line
               type="monotone"
               dataKey={yKey}
-              stroke="var(--accent-blue)"
+              stroke="var(--accent)"
               strokeWidth={2}
               dot={false}
             />
@@ -120,9 +120,11 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin }: ChartCardPr
               cx="50%"
               cy="50%"
               outerRadius={80}
-              label={({ name, percent }) =>
-                `${name} ${(percent * 100).toFixed(0)}%`
-              }
+              label={(props) => {
+                const name = String(props.name ?? '')
+                const percent = Number(props.percent ?? 0)
+                return `${name} ${(percent * 100).toFixed(0)}%`
+              }}
             >
               {chart.data.map((_, i) => (
                 <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -149,7 +151,7 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin }: ChartCardPr
       className="overflow-hidden rounded-xl border"
       style={{
         background: "var(--bg-card)",
-        borderColor: pinned ? "var(--accent-purple)" : "var(--border-color)",
+        borderColor: pinned ? "var(--accent-muted)" : "var(--border-color)",
       }}
     >
       <div
@@ -161,19 +163,19 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin }: ChartCardPr
           {pinned && onUnpin && (
             <button
               onClick={onUnpin}
-              className="rounded p-1 text-xs hover:bg-white/10"
-              title="고정 해제"
+              className="rounded px-2 py-0.5 text-xs hover:bg-white/10"
+              style={{ color: "var(--text-secondary)" }}
             >
-              📌
+              Unpin
             </button>
           )}
           {!pinned && onPin && (
             <button
               onClick={onPin}
-              className="rounded p-1 text-xs opacity-50 hover:bg-white/10 hover:opacity-100"
-              title="대시보드에 고정"
+              className="rounded px-2 py-0.5 text-xs opacity-50 hover:bg-white/10 hover:opacity-100"
+              style={{ color: "var(--text-tertiary)" }}
             >
-              📌
+              Pin
             </button>
           )}
         </div>

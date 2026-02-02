@@ -20,12 +20,12 @@ export default function Dashboard({
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <div className="mb-4 text-6xl opacity-20">📊</div>
-          <h2 className="mb-2 text-xl font-semibold" style={{ color: "var(--text-primary)" }}>
-            데이터를 업로드하세요
+          <div className="mb-6 text-5xl font-extralight opacity-10">V</div>
+          <h2 className="mb-2 text-lg font-medium tracking-tight" style={{ color: "var(--text-primary)" }}>
+            Upload your data
           </h2>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            CSV 파일을 사이드바에 드래그하면 자동으로 대시보드가 생성됩니다
+          <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+            Drag CSV files to the sidebar to auto-generate a dashboard
           </p>
         </div>
       </div>
@@ -38,10 +38,10 @@ export default function Dashboard({
       {pinnedCharts.length > 0 && (
         <section className="mb-6">
           <h2
-            className="mb-3 text-sm font-medium uppercase tracking-wider"
-            style={{ color: "var(--accent-purple)" }}
+            className="mb-3 text-xs font-medium uppercase tracking-widest"
+            style={{ color: "var(--accent-muted)" }}
           >
-            📌 고정된 차트
+            Pinned
           </h2>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {pinnedCharts.map((chart) => (
@@ -63,7 +63,7 @@ export default function Dashboard({
             className="mb-3 text-sm font-medium uppercase tracking-wider"
             style={{ color: "var(--text-secondary)" }}
           >
-            자동 분석 결과
+            Auto Analysis
           </h2>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {charts.map((chart) => (

@@ -102,7 +102,7 @@ export default function Home() {
         <button
           onClick={() => setIsChatOpen(true)}
           className="fixed right-4 bottom-4 rounded-full p-4"
-          style={{ background: "var(--accent-blue)" }}
+          style={{ background: "var(--accent)" }}
         >
           <svg
             width="24"
