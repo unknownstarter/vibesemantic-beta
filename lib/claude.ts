@@ -1,4 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { TextBlockParam } from '@anthropic-ai/sdk/resources/messages'
+
+// Model constants
+export const MODEL_CODE_GEN = 'claude-sonnet-4-20250514'
+export const MODEL_INTERPRET = 'claude-haiku-4-5-20251001'
 
 const CODE_GEN_SYSTEM = `너는 데이터 분석 에이전트야. 사용자의 질문에 Python 코드로 답변해.
 
@@ -26,7 +31,16 @@ interface MetadataSummary {
 
 interface BuildResult {
   system: string
+  systemBlocks: TextBlockParam[]
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
+}
+
+function withCacheControl(text: string): TextBlockParam {
+  return {
+    type: 'text',
+    text,
+    cache_control: { type: 'ephemeral' },
+  } as TextBlockParam
 }
 
 export function buildCodeGenMessages(
@@ -40,12 +54,17 @@ export function buildCodeGenMessages(
 
   const system = `${CODE_GEN_SYSTEM}\n\n사용 가능한 데이터:\n${dataContext}`
 
+  const systemBlocks: TextBlockParam[] = [
+    withCacheControl(CODE_GEN_SYSTEM),
+    withCacheControl(`사용 가능한 데이터:\n${dataContext}`),
+  ]
+
   const messages = [
     ...history,
     { role: 'user' as const, content: question },
   ]
 
-  return { system, messages }
+  return { system, systemBlocks, messages }
 }
 
 export function buildInterpretMessages(
@@ -54,6 +73,7 @@ export function buildInterpretMessages(
 ): BuildResult {
   return {
     system: INTERPRET_SYSTEM,
+    systemBlocks: [withCacheControl(INTERPRET_SYSTEM)],
     messages: [
       {
         role: 'user',
@@ -85,13 +105,13 @@ export async function generateCode(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   question: string
 ): Promise<string> {
-  const { system, messages } = buildCodeGenMessages(metadata, history, question)
+  const { systemBlocks, messages } = buildCodeGenMessages(metadata, history, question)
   const anthropic = getClient()
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: MODEL_CODE_GEN,
     max_tokens: 4096,
-    system,
+    system: systemBlocks,
     messages,
     temperature: 0,
   })
@@ -104,13 +124,13 @@ export async function interpretResult(
   executionOutput: string,
   originalQuestion: string
 ): Promise<string> {
-  const { system, messages } = buildInterpretMessages(executionOutput, originalQuestion)
+  const { systemBlocks, messages } = buildInterpretMessages(executionOutput, originalQuestion)
   const anthropic = getClient()
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: MODEL_INTERPRET,
     max_tokens: 2048,
-    system,
+    system: systemBlocks,
     messages,
     temperature: 0.3,
   })

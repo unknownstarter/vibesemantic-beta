@@ -1,5 +1,5 @@
 import fs from 'fs/promises'
-import type { ColumnInfo } from './types'
+import type { ColumnInfo, NumericStats } from './types'
 
 interface MetadataResult {
   columns: ColumnInfo[]
@@ -29,12 +29,21 @@ export async function extractMetadata(filePath: string): Promise<MetadataResult>
   const sample = rows.slice(0, 5)
   const columns: ColumnInfo[] = headers.map(name => {
     const values = rows.map(r => r[name])
-    return {
+    const colType = inferType(values)
+    const col: ColumnInfo = {
       name,
-      type: inferType(values),
+      type: colType,
       nullCount: values.filter(v => v === null || v === '' || v === undefined).length,
       uniqueCount: new Set(values.filter(v => v !== null && v !== '')).size,
     }
+
+    if (colType === 'number') {
+      col.stats = computeNumericStats(values)
+    } else if (colType === 'string') {
+      col.topValues = computeTopValues(values)
+    }
+
+    return col
   })
 
   return { columns, rowCount: rows.length, sample }
@@ -57,6 +66,50 @@ function parseCSVLine(line: string): string[] {
   }
   result.push(current.trim())
   return result
+}
+
+function computeNumericStats(values: unknown[]): NumericStats {
+  const nums = values
+    .filter(v => v !== null && v !== '' && v !== undefined)
+    .map(Number)
+    .filter(n => !isNaN(n))
+
+  if (nums.length === 0) {
+    return { min: 0, max: 0, mean: 0, median: 0, std: 0 }
+  }
+
+  const sorted = [...nums].sort((a, b) => a - b)
+  const sum = nums.reduce((a, b) => a + b, 0)
+  const mean = sum / nums.length
+
+  const mid = Math.floor(sorted.length / 2)
+  const median = sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid]
+
+  const variance = nums.reduce((acc, n) => acc + (n - mean) ** 2, 0) / nums.length
+  const std = Math.sqrt(variance)
+
+  return {
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    mean: Math.round(mean * 100) / 100,
+    median: Math.round(median * 100) / 100,
+    std: Math.round(std * 100) / 100,
+  }
+}
+
+function computeTopValues(values: unknown[], limit = 10): Array<{ value: string; count: number }> {
+  const freq = new Map<string, number>()
+  for (const v of values) {
+    if (v === null || v === '' || v === undefined) continue
+    const key = String(v)
+    freq.set(key, (freq.get(key) ?? 0) + 1)
+  }
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([value, count]) => ({ value, count }))
 }
 
 function inferType(values: unknown[]): ColumnInfo['type'] {

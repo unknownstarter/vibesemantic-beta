@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3'
+import fs from 'fs'
+import path from 'path'
 import { v4 as uuid } from 'uuid'
 import type { Session, ChatMessage } from './types'
 
@@ -6,6 +8,10 @@ export class SessionStore {
   private db: Database.Database
 
   constructor(dbPath: string = 'data/sessions.db') {
+    const dir = path.dirname(dbPath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
     this.db = new Database(dbPath)
     this.db.pragma('journal_mode = WAL')
     this.migrate()
@@ -32,11 +38,36 @@ export class SessionStore {
         FOREIGN KEY (session_id) REFERENCES sessions(id)
       );
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+      CREATE TABLE IF NOT EXISTS files (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        columns_json TEXT NOT NULL,
+        sample_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `
     this.db.pragma('journal_mode = WAL')
     // better-sqlite3 requires .exec for multi-statement DDL
     const run = this.db.exec.bind(this.db)
     run(setup)
+  }
+
+  registerFile(id: string, name: string, filePath: string, columns: string[], sample: Record<string, unknown>[]): void {
+    this.db.prepare(
+      'INSERT OR REPLACE INTO files (id, name, path, columns_json, sample_json, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, name, filePath, JSON.stringify(columns), JSON.stringify(sample), new Date().toISOString())
+  }
+
+  getFile(id: string): { name: string; path: string; columns: string[]; sample: Record<string, unknown>[] } | null {
+    const row = this.db.prepare('SELECT * FROM files WHERE id = ?').get(id) as Record<string, string> | undefined
+    if (!row) return null
+    return {
+      name: row.name,
+      path: row.path,
+      columns: JSON.parse(row.columns_json),
+      sample: JSON.parse(row.sample_json),
+    }
   }
 
   createSession(title: string, fileIds: string[]): Session {

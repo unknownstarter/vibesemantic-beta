@@ -3,7 +3,7 @@ import path from 'path'
 import { v4 as uuid } from 'uuid'
 import { generateCode, interpretResult } from '@/lib/claude'
 import { executePython, validateCode } from '@/lib/executor'
-import { fileRegistry } from '@/app/api/upload/route'
+import { getSessionStore } from '@/lib/sessions'
 import type { ChatResponse, ChartData } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
@@ -21,11 +21,12 @@ export async function POST(request: NextRequest) {
 
     const outputsDir = path.join(process.cwd(), 'outputs')
     const uploadsDir = path.join(process.cwd(), 'uploads')
+    const store = getSessionStore()
 
-    // Build metadata context
+    // Build metadata context from SQLite
     const metadata = fileIds
-      .map(id => fileRegistry.get(id))
-      .filter((m): m is NonNullable<typeof m> => m !== undefined)
+      .map(id => store.getFile(id))
+      .filter((m): m is NonNullable<typeof m> => m !== null)
       .map(m => ({
         name: m.name,
         columns: m.columns,
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
     // Build file path context for code generation
     const filePathContext = fileIds
       .map(id => {
-        const meta = fileRegistry.get(id)
+        const meta = store.getFile(id)
         if (!meta) return null
         return `${meta.name}: ${meta.path}`
       })

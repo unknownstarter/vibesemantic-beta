@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { buildCodeGenMessages, buildInterpretMessages, extractPythonCode } from '@/lib/claude'
+import {
+  buildCodeGenMessages,
+  buildInterpretMessages,
+  extractPythonCode,
+  MODEL_CODE_GEN,
+  MODEL_INTERPRET,
+} from '@/lib/claude'
 
 describe('buildCodeGenMessages', () => {
   it('should build messages with system prompt and metadata', () => {
@@ -21,6 +27,24 @@ describe('buildCodeGenMessages', () => {
     const result = buildCodeGenMessages([], history, '새 질문')
     expect(result.messages).toHaveLength(3)
   })
+
+  it('should include systemBlocks with cache_control', () => {
+    const metadata = [
+      { name: 'test.csv', columns: ['name', 'age'], sample: [{ name: 'Alice', age: 30 }] }
+    ]
+    const result = buildCodeGenMessages(metadata, [], '질문')
+    expect(result.systemBlocks).toBeDefined()
+    expect(result.systemBlocks).toHaveLength(2)
+    expect(result.systemBlocks[0]).toMatchObject({
+      type: 'text',
+      cache_control: { type: 'ephemeral' },
+    })
+    expect(result.systemBlocks[1]).toMatchObject({
+      type: 'text',
+      cache_control: { type: 'ephemeral' },
+    })
+    expect(result.systemBlocks[1].text).toContain('test.csv')
+  })
 })
 
 describe('extractPythonCode', () => {
@@ -40,5 +64,24 @@ describe('buildInterpretMessages', () => {
     const result = buildInterpretMessages('코드 실행 결과:\n총 100건', '원본 질문')
     expect(result.system).toContain('분석')
     expect(result.messages[0].content).toContain('총 100건')
+  })
+
+  it('should include systemBlocks with cache_control', () => {
+    const result = buildInterpretMessages('결과', '질문')
+    expect(result.systemBlocks).toHaveLength(1)
+    expect(result.systemBlocks[0]).toMatchObject({
+      type: 'text',
+      cache_control: { type: 'ephemeral' },
+    })
+  })
+})
+
+describe('model constants', () => {
+  it('should use Sonnet for code generation', () => {
+    expect(MODEL_CODE_GEN).toBe('claude-sonnet-4-20250514')
+  })
+
+  it('should use Haiku for interpretation', () => {
+    expect(MODEL_INTERPRET).toBe('claude-haiku-4-5-20251001')
   })
 })

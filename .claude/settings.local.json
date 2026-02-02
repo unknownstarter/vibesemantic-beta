@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx next lint:*)",
+      "Bash(npx next:*)",
+      "Bash(npm run lint:*)",
+      "Bash(ls:*)",
+      "Bash(npx vitest:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git -C /Users/noahs/vibesemantic-beta-main status -s)",
+      "Bash(git -C /Users/noahs/vibesemantic-beta-main add .claude/ .gitignore CLAUDE.md __tests__/ app/ docs/ eslint.config.mjs lib/ next.config.ts package-lock.json package.json postcss.config.mjs scripts/ tsconfig.json vitest.config.ts)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git rebase:*)",
+      "Bash(GIT_EDITOR=true git rebase:*)"
+    ]
+  }
+}

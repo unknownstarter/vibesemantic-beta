@@ -9,11 +9,21 @@ export interface FileMetadata {
   createdAt: string
 }
 
+export interface NumericStats {
+  min: number
+  max: number
+  mean: number
+  median: number
+  std: number
+}
+
 export interface ColumnInfo {
   name: string
   type: 'number' | 'string' | 'date' | 'boolean'
   nullCount: number
   uniqueCount: number
+  stats?: NumericStats
+  topValues?: Array<{ value: string; count: number }>
 }
 
 // 차트 데이터
