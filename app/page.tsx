@@ -1,70 +1,120 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import Sidebar from "./components/Sidebar";
-import Dashboard from "./components/Dashboard";
-import ChatPanel from "./components/ChatPanel";
+import { useState, useCallback, useRef } from 'react'
+import type { FileMetadata, ChartData, ChatMessage, DataProfile, QuickAction } from '@/lib/types'
+import Sidebar from './components/Sidebar'
+import Dashboard from './components/Dashboard'
+import ResearchPanel from './components/ResearchPanel'
+import { useAgentStream, type AgentCompleteResult } from './hooks/useAgentStream'
 
-export interface UploadedFile {
-  id: string;
-  name: string;
-  columns: string[];
-  rowCount: number;
-  sample: Record<string, unknown>[];
-}
-
-export interface ChartData {
-  id: string;
-  type: "bar" | "line" | "pie" | "histogram" | "summary";
-  title: string;
-  data: Record<string, unknown>[];
-  xKey?: string;
-  yKey?: string;
-  imageUrl?: string;
-}
-
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  charts?: ChartData[];
-  code?: string;
+interface UploadedFile {
+  id: string
+  name: string
+  columns: string[]
+  rowCount: number
+  sample: Record<string, unknown>[]
 }
 
 export default function Home() {
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
-  const [dashboardCharts, setDashboardCharts] = useState<ChartData[]>([]);
-  const [pinnedCharts, setPinnedCharts] = useState<ChartData[]>([]);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [files, setFiles] = useState<UploadedFile[]>([])
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([])
+  const [dashboardCharts, setDashboardCharts] = useState<ChartData[]>([])
+  const [pinnedCharts, setPinnedCharts] = useState<ChartData[]>([])
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [isChatOpen, setIsChatOpen] = useState(true)
+  const [profile, setProfile] = useState<DataProfile | null>(null)
+  const [quickActions, setQuickActions] = useState<QuickAction[]>([])
 
-  const handleFilesUploaded = (
-    newFiles: UploadedFile[],
-    charts: ChartData[]
+  const chatInputRef = useRef<string>('')
+
+  const agent = useAgentStream()
+
+  const handleFilesUploaded = useCallback((
+    newFiles: FileMetadata[],
+    charts: ChartData[],
+    newProfile?: DataProfile,
+    newQuickActions?: QuickAction[],
   ) => {
-    setFiles((prev) => [...prev, ...newFiles]);
-    setSelectedFileIds((prev) => [...prev, ...newFiles.map((f) => f.id)]);
-    setDashboardCharts((prev) => [...prev, ...charts]);
-  };
+    const mapped: UploadedFile[] = newFiles.map(f => ({
+      id: f.id,
+      name: f.name,
+      columns: f.columns.map(c => c.name),
+      rowCount: f.rowCount,
+      sample: f.sample,
+    }))
+    setFiles(prev => [...prev, ...mapped])
+    setSelectedFileIds(prev => [...prev, ...newFiles.map(f => f.id)])
+    setDashboardCharts(prev => [...prev, ...charts])
+    if (newProfile) setProfile(newProfile)
+    if (newQuickActions) setQuickActions(newQuickActions)
+  }, [])
 
-  const handlePinChart = (chart: ChartData) => {
-    setPinnedCharts((prev) => {
-      if (prev.some((c) => c.id === chart.id)) return prev;
-      return [...prev, chart];
-    });
-  };
+  const handlePinChart = useCallback((chart: ChartData) => {
+    setPinnedCharts(prev => {
+      if (prev.some(c => c.id === chart.id)) return prev
+      return [...prev, chart]
+    })
+  }, [])
 
-  const handleUnpinChart = (chartId: string) => {
-    setPinnedCharts((prev) => prev.filter((c) => c.id !== chartId));
-  };
+  const handleUnpinChart = useCallback((chartId: string) => {
+    setPinnedCharts(prev => prev.filter(c => c.id !== chartId))
+  }, [])
 
-  const handleToggleFile = (fileId: string) => {
-    setSelectedFileIds((prev) =>
+  const handleToggleFile = useCallback((fileId: string) => {
+    setSelectedFileIds(prev =>
       prev.includes(fileId)
-        ? prev.filter((id) => id !== fileId)
+        ? prev.filter(id => id !== fileId)
         : [...prev, fileId]
-    );
-  };
+    )
+  }, [])
+
+  // Chart → Chat Bridge
+  const handleChartClick = useCallback((event: { suggestedQuestion: string }) => {
+    chatInputRef.current = event.suggestedQuestion
+    setIsChatOpen(true)
+    // ResearchPanel will read this and set its input
+  }, [])
+
+  // 분석 완료 시 chatMessages에 assistant 메시지 영속화
+  const handleAnalysisComplete = useCallback((result: AgentCompleteResult) => {
+    if (!result.insight && result.charts.length === 0) return
+    const assistantMsg: ChatMessage = {
+      role: 'assistant',
+      content: result.insight,
+      charts: result.charts.length > 0 ? result.charts : undefined,
+      followUpQuestions: result.followUpQuestions.length > 0 ? result.followUpQuestions : undefined,
+    }
+    setChatMessages(prev => [...prev, assistantMsg])
+  }, [])
+
+  // Quick Action → Agent Analysis
+  const handleQuickAction = useCallback((prompt: string) => {
+    setIsChatOpen(true)
+    const userMsg: ChatMessage = { role: 'user', content: prompt }
+    setChatMessages(prev => [...prev, userMsg])
+    agent.startAnalysis(
+      prompt,
+      selectedFileIds,
+      undefined,
+      chatMessages.map(m => ({ role: m.role, content: m.content })),
+      handleAnalysisComplete,
+    )
+  }, [agent, selectedFileIds, chatMessages, handleAnalysisComplete])
+
+  // Start agent analysis
+  const handleStartAnalysis = useCallback((question: string) => {
+    agent.startAnalysis(
+      question,
+      selectedFileIds,
+      undefined,
+      chatMessages.map(m => ({ role: m.role, content: m.content })),
+      handleAnalysisComplete,
+    )
+  }, [agent, selectedFileIds, chatMessages, handleAnalysisComplete])
+
+  // Get sample data for DataTable
+  const sampleData = files.length > 0 ? files[files.length - 1].sample : undefined
+  const sampleColumns = files.length > 0 ? files[files.length - 1].columns : undefined
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -74,6 +124,8 @@ export default function Home() {
         selectedFileIds={selectedFileIds}
         onToggleFile={handleToggleFile}
         onFilesUploaded={handleFilesUploaded}
+        quickActions={quickActions}
+        onQuickAction={handleQuickAction}
       />
 
       {/* Main Dashboard */}
@@ -82,18 +134,27 @@ export default function Home() {
           charts={dashboardCharts}
           pinnedCharts={pinnedCharts}
           onUnpinChart={handleUnpinChart}
+          profile={profile}
+          sampleData={sampleData}
+          sampleColumns={sampleColumns}
+          onChartClick={handleChartClick}
         />
       </main>
 
-      {/* Chat Panel */}
+      {/* Research Panel (replaces ChatPanel) */}
       {isChatOpen && (
-        <ChatPanel
-          files={files}
+        <ResearchPanel
           selectedFileIds={selectedFileIds}
           messages={chatMessages}
           onMessagesChange={setChatMessages}
           onPinChart={handlePinChart}
           onClose={() => setIsChatOpen(false)}
+          plan={agent.plan}
+          isStreaming={agent.isStreaming}
+          insight={agent.insight}
+          followUpQuestions={agent.followUpQuestions}
+          streamCharts={agent.streamCharts}
+          onStartAnalysis={handleStartAnalysis}
         />
       )}
 
@@ -102,20 +163,16 @@ export default function Home() {
         <button
           onClick={() => setIsChatOpen(true)}
           className="fixed right-4 bottom-4 rounded-full p-4"
-          style={{ background: "var(--accent)" }}
+          style={{ background: 'var(--accent)' }}
         >
           <svg
-            width="24"
-            height="24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
+            width="24" height="24" fill="none"
+            stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
           >
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
         </button>
       )}
     </div>
-  );
+  )
 }

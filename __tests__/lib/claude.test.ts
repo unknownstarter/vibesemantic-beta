@@ -13,7 +13,7 @@ describe('buildCodeGenMessages', () => {
       { name: 'test.csv', columns: ['name', 'age'], sample: [{ name: 'Alice', age: 30 }] }
     ]
     const result = buildCodeGenMessages(metadata, [], '나이별 분포를 보여줘')
-    expect(result.system).toContain('데이터 분석')
+    expect(result.system).toContain('분석')
     expect(result.messages).toHaveLength(1)
     expect(result.messages[0].role).toBe('user')
     expect(result.messages[0].content).toContain('나이별 분포')
@@ -45,6 +45,18 @@ describe('buildCodeGenMessages', () => {
     })
     expect(result.systemBlocks[1].text).toContain('test.csv')
   })
+
+  it('should include cache context when provided', () => {
+    const metadata = [{ name: 'test.csv', columns: ['a'], sample: [] }]
+    const result = buildCodeGenMessages(metadata, [], '질문', '이전 캐시 데이터')
+    expect(result.systemBlocks[1].text).toContain('이전 캐시 데이터')
+  })
+
+  it('should include learned context when provided', () => {
+    const metadata = [{ name: 'test.csv', columns: ['a'], sample: [] }]
+    const result = buildCodeGenMessages(metadata, [], '질문', undefined, 'B2B SaaS 데이터')
+    expect(result.systemBlocks[1].text).toContain('B2B SaaS')
+  })
 })
 
 describe('extractPythonCode', () => {
@@ -73,6 +85,11 @@ describe('buildInterpretMessages', () => {
       type: 'text',
       cache_control: { type: 'ephemeral' },
     })
+  })
+
+  it('should include learned context in system when provided', () => {
+    const result = buildInterpretMessages('결과', '질문', 'B2B SaaS')
+    expect(result.system).toContain('B2B SaaS')
   })
 })
 

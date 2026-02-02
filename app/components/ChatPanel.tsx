@@ -1,10 +1,9 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import type { UploadedFile, ChartData, ChatMessage } from "../page"
+import type { ChartData, ChatMessage } from '@/lib/types'
 
 interface ChatPanelProps {
-  files: UploadedFile[]
   selectedFileIds: string[]
   messages: ChatMessage[]
   onMessagesChange: (messages: ChatMessage[]) => void

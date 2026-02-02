@@ -27,6 +27,16 @@
   --warning: #fbbf24;
   --error: #f87171;
 
+  /* Analysis palette (for charts) */
+  --chart-1: #60a5fa;
+  --chart-2: #f472b6;
+  --chart-3: #34d399;
+  --chart-4: #fbbf24;
+  --chart-5: #a78bfa;
+  --chart-6: #fb923c;
+  --chart-7: #22d3ee;
+  --chart-8: #e879f9;
+
   /* Spacing */
   --radius: 10px;
   --radius-sm: 6px;
@@ -74,3 +84,8 @@ body {
   outline: 1px solid var(--border-focus);
   outline-offset: 2px;
 }
+
+/* Profile card quality indicator */
+.quality-high { color: var(--success); }
+.quality-medium { color: var(--warning); }
+.quality-low { color: var(--error); }

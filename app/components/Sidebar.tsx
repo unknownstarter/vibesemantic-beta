@@ -1,13 +1,24 @@
-"use client";
+"use client"
 
-import { useCallback, useRef, useState } from "react";
-import type { UploadedFile, ChartData } from "../page";
+import { useCallback, useRef, useState } from 'react'
+import type { ChartData, QuickAction, DataProfile, FileMetadata } from '@/lib/types'
+import QuickActions from './QuickActions'
+
+interface UploadedFile {
+  id: string
+  name: string
+  columns: string[]
+  rowCount: number
+  sample: Record<string, unknown>[]
+}
 
 interface SidebarProps {
-  files: UploadedFile[];
-  selectedFileIds: string[];
-  onToggleFile: (fileId: string) => void;
-  onFilesUploaded: (files: UploadedFile[], charts: ChartData[]) => void;
+  files: UploadedFile[]
+  selectedFileIds: string[]
+  onToggleFile: (fileId: string) => void
+  onFilesUploaded: (files: FileMetadata[], charts: ChartData[], profile?: DataProfile, quickActions?: QuickAction[]) => void
+  quickActions: QuickAction[]
+  onQuickAction: (prompt: string) => void
 }
 
 export default function Sidebar({
@@ -15,73 +26,80 @@ export default function Sidebar({
   selectedFileIds,
   onToggleFile,
   onFilesUploaded,
+  quickActions,
+  onQuickAction,
 }: SidebarProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleUpload = useCallback(
     async (fileList: FileList) => {
-      setIsUploading(true);
+      setIsUploading(true)
       try {
-        const formData = new FormData();
+        const formData = new FormData()
         Array.from(fileList).forEach((file) => {
-          formData.append("files", file);
-        });
+          formData.append('files', file)
+        })
 
-        const res = await fetch("/api/upload", {
-          method: "POST",
+        const res = await fetch('/api/upload', {
+          method: 'POST',
           body: formData,
-        });
+        })
 
-        if (!res.ok) throw new Error("Upload failed");
+        if (!res.ok) throw new Error('Upload failed')
 
-        const json = await res.json();
-        const payload = json.data || json;
-        onFilesUploaded(payload.files, payload.charts || []);
+        const json = await res.json()
+        const payload = json.data || json
+        onFilesUploaded(
+          payload.files,
+          payload.charts || [],
+          payload.profile,
+          payload.quickActions,
+        )
       } catch (err) {
-        console.error("Upload error:", err);
+        console.error('Upload error:', err)
       } finally {
-        setIsUploading(false);
+        setIsUploading(false)
       }
     },
     [onFilesUploaded]
-  );
+  )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
 
   const handleDragLeave = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+    setIsDragging(false)
+  }, [])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
+      e.preventDefault()
+      setIsDragging(false)
       if (e.dataTransfer.files.length > 0) {
-        handleUpload(e.dataTransfer.files);
+        handleUpload(e.dataTransfer.files)
       }
     },
     [handleUpload]
-  );
+  )
 
   return (
     <aside
       className="flex w-64 flex-col border-r"
       style={{
-        background: "var(--bg-secondary)",
-        borderColor: "var(--border-color)",
+        background: 'var(--bg-secondary)',
+        borderColor: 'var(--border-color)',
       }}
     >
       {/* Header */}
-      <div className="border-b p-4" style={{ borderColor: "var(--border-color)" }}>
-        <h1 className="text-lg font-bold" style={{ color: "var(--accent)" }}>
+      <div className="border-b p-4" style={{ borderColor: 'var(--border-color)' }}>
+        <h1 className="text-lg font-bold" style={{ color: 'var(--accent)' }}>
           VibeSemantic
         </h1>
-        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
           CSV Analysis Agent
         </p>
       </div>
@@ -89,10 +107,10 @@ export default function Sidebar({
       {/* Upload Area */}
       <div
         className={`m-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 ${
-          isDragging ? "border-blue-400 bg-blue-400/10" : ""
+          isDragging ? 'border-blue-400 bg-blue-400/10' : ''
         }`}
         style={{
-          borderColor: isDragging ? "var(--accent)" : "var(--border-color)",
+          borderColor: isDragging ? 'var(--accent)' : 'var(--border-color)',
         }}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -111,26 +129,22 @@ export default function Sidebar({
           <div className="flex items-center gap-2">
             <div
               className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
-              style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
+              style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
             />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               Uploading...
             </span>
           </div>
         ) : (
           <>
             <svg
-              width="24"
-              height="24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              viewBox="0 0 24 24"
-              style={{ color: "var(--text-secondary)" }}
+              width="24" height="24" fill="none" stroke="currentColor"
+              strokeWidth="1.5" viewBox="0 0 24 24"
+              style={{ color: 'var(--text-secondary)' }}
             >
               <path d="M12 16V4m0 0L8 8m4-4l4 4M4 20h16" />
             </svg>
-            <span className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <span className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
               Drop CSV or click to upload
             </span>
           </>
@@ -141,12 +155,12 @@ export default function Sidebar({
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         <p
           className="mb-2 text-xs font-medium uppercase tracking-wider"
-          style={{ color: "var(--text-secondary)" }}
+          style={{ color: 'var(--text-secondary)' }}
         >
           Data Files ({files.length})
         </p>
         {files.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
             No files uploaded yet
           </p>
         ) : (
@@ -161,11 +175,11 @@ export default function Sidebar({
                   className="h-3 w-3 rounded-sm border"
                   style={{
                     borderColor: selectedFileIds.includes(file.id)
-                      ? "var(--accent)"
-                      : "var(--border-color)",
+                      ? 'var(--accent)'
+                      : 'var(--border-color)',
                     background: selectedFileIds.includes(file.id)
-                      ? "var(--accent)"
-                      : "transparent",
+                      ? 'var(--accent)'
+                      : 'transparent',
                   }}
                 />
                 <span className="truncate" title={file.name}>
@@ -173,7 +187,7 @@ export default function Sidebar({
                 </span>
                 <span
                   className="ml-auto shrink-0 text-xs"
-                  style={{ color: "var(--text-secondary)" }}
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   {file.rowCount.toLocaleString()}행
                 </span>
@@ -182,6 +196,9 @@ export default function Sidebar({
           </ul>
         )}
       </div>
+
+      {/* Quick Actions */}
+      <QuickActions actions={quickActions} onAction={onQuickAction} />
     </aside>
-  );
+  )
 }

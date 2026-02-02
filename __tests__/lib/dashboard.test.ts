@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildAutoDashboard } from '@/lib/dashboard'
+import { buildAutoDashboard, generateQuickActions } from '@/lib/dashboard'
 import type { ColumnInfo } from '@/lib/types'
 
 function makeColumn(overrides: Partial<ColumnInfo> & { name: string; type: ColumnInfo['type'] }): ColumnInfo {
@@ -132,5 +132,69 @@ describe('buildAutoDashboard', () => {
     })
     const catChart = charts.find(c => c.title === 'email 분포')
     expect(catChart).toBeUndefined()
+  })
+})
+
+describe('generateQuickActions', () => {
+  it('should generate timeline action for date + numeric columns', () => {
+    const columns: ColumnInfo[] = [
+      makeColumn({ name: 'date', type: 'date' }),
+      makeColumn({ name: 'revenue', type: 'number' }),
+    ]
+    const actions = generateQuickActions(columns)
+    const timeline = actions.find(a => a.label === '시계열 트렌드 분석')
+    expect(timeline).toBeDefined()
+    expect(timeline!.columns).toContain('date')
+    expect(timeline!.columns).toContain('revenue')
+    expect(timeline!.prompt).toContain('date')
+  })
+
+  it('should generate group comparison for category + numeric columns', () => {
+    const columns: ColumnInfo[] = [
+      makeColumn({ name: 'city', type: 'string', uniqueCount: 5 }),
+      makeColumn({ name: 'sales', type: 'number' }),
+    ]
+    const actions = generateQuickActions(columns)
+    const group = actions.find(a => a.label === '그룹별 비교 분석')
+    expect(group).toBeDefined()
+    expect(group!.columns).toContain('city')
+  })
+
+  it('should generate correlation action for 2+ numeric columns', () => {
+    const columns: ColumnInfo[] = [
+      makeColumn({ name: 'age', type: 'number' }),
+      makeColumn({ name: 'income', type: 'number' }),
+    ]
+    const actions = generateQuickActions(columns)
+    const corr = actions.find(a => a.label === '상관관계 분석')
+    expect(corr).toBeDefined()
+    expect(corr!.columns).toEqual(['age', 'income'])
+  })
+
+  it('should generate missing data action for columns with null counts', () => {
+    const columns: ColumnInfo[] = [
+      makeColumn({ name: 'email', type: 'string', nullCount: 10 }),
+    ]
+    const actions = generateQuickActions(columns)
+    const missing = actions.find(a => a.label === '결측치 패턴 분석')
+    expect(missing).toBeDefined()
+  })
+
+  it('should generate text frequency action for high-cardinality strings', () => {
+    const columns: ColumnInfo[] = [
+      makeColumn({ name: 'product_name', type: 'string', uniqueCount: 50 }),
+    ]
+    const actions = generateQuickActions(columns)
+    const text = actions.find(a => a.label === '텍스트 빈도 분석')
+    expect(text).toBeDefined()
+    expect(text!.columns).toContain('product_name')
+  })
+
+  it('should return empty array for no matching patterns', () => {
+    const columns: ColumnInfo[] = [
+      makeColumn({ name: 'id', type: 'string', uniqueCount: 1, nullCount: 0 }),
+    ]
+    const actions = generateQuickActions(columns)
+    expect(actions).toHaveLength(0)
   })
 })

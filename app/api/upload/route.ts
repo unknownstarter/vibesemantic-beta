@@ -3,9 +3,10 @@ import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 import { v4 as uuid } from 'uuid'
 import { extractMetadata } from '@/lib/metadata'
-import { buildAutoDashboard } from '@/lib/dashboard'
+import { buildAutoDashboard, generateQuickActions } from '@/lib/dashboard'
+import { runSmartProfile } from '@/lib/profile'
 import { getSessionStore } from '@/lib/sessions'
-import type { FileMetadata, ChartData } from '@/lib/types'
+import type { FileMetadata, ChartData, DataProfile, QuickAction } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +23,8 @@ export async function POST(request: NextRequest) {
     const store = getSessionStore()
     const results: FileMetadata[] = []
     const allCharts: ChartData[] = []
+    let profile: DataProfile | undefined
+    let quickActions: QuickAction[] = []
 
     for (const file of files) {
       if (!file.name.endsWith('.csv')) continue
@@ -59,9 +62,22 @@ export async function POST(request: NextRequest) {
         rowCount: meta.rowCount,
       })
       allCharts.push(...dashboardCharts)
+
+      // Smart Profile (Python pandas profiling)
+      profile = await runSmartProfile(fileId, filePath)
+
+      // Quick Actions (rule-based)
+      quickActions = generateQuickActions(meta.columns)
     }
 
-    return NextResponse.json({ data: { files: results, charts: allCharts } })
+    return NextResponse.json({
+      data: {
+        files: results,
+        charts: allCharts,
+        profile,
+        quickActions,
+      },
+    })
   } catch (error) {
     console.error('[UPLOAD]', error)
     return NextResponse.json({ error: '파일 업로드에 실패했습니다' }, { status: 500 })

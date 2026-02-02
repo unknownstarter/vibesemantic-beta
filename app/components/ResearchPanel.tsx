@@ -1,0 +1,336 @@
+"use client"
+
+import { useState, useRef, useEffect, useCallback } from 'react'
+import type { ChatMessage, ChartData, AnalysisPlan } from '@/lib/types'
+import PlanView from './PlanView'
+import SuggestionChips from './SuggestionChips'
+import ExportButton from './ExportButton'
+
+interface ResearchPanelProps {
+  selectedFileIds: string[]
+  messages: ChatMessage[]
+  onMessagesChange: (messages: ChatMessage[]) => void
+  onPinChart: (chart: ChartData) => void
+  onClose: () => void
+  plan: AnalysisPlan | null
+  isStreaming: boolean
+  insight: string
+  followUpQuestions: string[]
+  streamCharts: ChartData[]
+  onStartAnalysis: (question: string) => void
+}
+
+export default function ResearchPanel({
+  selectedFileIds,
+  messages,
+  onMessagesChange,
+  onPinChart,
+  onClose,
+  plan,
+  isStreaming,
+  insight,
+  followUpQuestions,
+  streamCharts,
+  onStartAnalysis,
+}: ResearchPanelProps) {
+  const [input, setInput] = useState('')
+  const [isLegacyLoading, setIsLegacyLoading] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, plan, insight])
+
+  // Legacy chat (simple single-turn for backward compat)
+  const handleLegacySend = useCallback(async () => {
+    const trimmed = input.trim()
+    if (!trimmed || isLegacyLoading || isStreaming) return
+
+    const userMsg: ChatMessage = { role: 'user', content: trimmed }
+    const updated = [...messages, userMsg]
+    onMessagesChange(updated)
+    setInput('')
+    setIsLegacyLoading(true)
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: trimmed,
+          fileIds: selectedFileIds,
+          history: messages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      })
+
+      const json = await res.json()
+      if (json.error) throw new Error(json.error)
+
+      const data = json.data
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        content: data.reply,
+        charts: data.charts,
+        code: data.code,
+      }
+      onMessagesChange([...updated, assistantMsg])
+    } catch {
+      const errorMsg: ChatMessage = {
+        role: 'assistant',
+        content: '응답 생성에 실패했습니다. 다시 시도해주세요.',
+      }
+      onMessagesChange([...updated, errorMsg])
+    } finally {
+      setIsLegacyLoading(false)
+    }
+  }, [input, isLegacyLoading, isStreaming, messages, selectedFileIds, onMessagesChange])
+
+  // Agent-based analysis (multi-step)
+  const handleAgentSend = useCallback(() => {
+    const trimmed = input.trim()
+    if (!trimmed || isLegacyLoading || isStreaming) return
+
+    const userMsg: ChatMessage = { role: 'user', content: trimmed }
+    onMessagesChange([...messages, userMsg])
+    setInput('')
+    onStartAnalysis(trimmed)
+  }, [input, isLegacyLoading, isStreaming, messages, onMessagesChange, onStartAnalysis])
+
+  const handleSend = handleAgentSend
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+    if (e.key === 'Escape') onClose()
+  }
+
+  const handleSuggestionSelect = (question: string) => {
+    setInput(question)
+  }
+
+  const loading = isLegacyLoading || isStreaming
+
+  return (
+    <aside
+      className="flex w-[420px] flex-col border-l"
+      style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between border-b px-5 py-4"
+        style={{ borderColor: 'var(--border-color)' }}
+      >
+        <div>
+          <h2 className="text-sm font-semibold tracking-tight">Research</h2>
+          <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+            {selectedFileIds.length} files selected
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <ExportButton messages={messages} />
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 hover:bg-white/5"
+            style={{ color: 'var(--text-secondary)' }}
+            aria-label="Close"
+          >
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        {/* Empty state */}
+        {messages.length === 0 && !plan && (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                데이터에 대해 무엇이든 질문하세요
+              </p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                AI가 다단계 분석 계획을 세우고 실행합니다
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Messages */}
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className="max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed"
+              style={{
+                background: msg.role === 'user' ? 'var(--bg-tertiary)' : 'transparent',
+                border: msg.role === 'assistant' ? '1px solid var(--border-color)' : 'none',
+              }}
+            >
+              <p className="whitespace-pre-wrap">{msg.content}</p>
+
+              {msg.code && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                    View code
+                  </summary>
+                  <pre
+                    className="mt-2 overflow-x-auto rounded-lg p-3 text-xs"
+                    style={{ background: 'var(--bg-primary)', color: 'var(--text-secondary)' }}
+                  >
+                    {msg.code}
+                  </pre>
+                </details>
+              )}
+
+              {msg.charts && msg.charts.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {msg.charts.map((chart) => (
+                    <div
+                      key={chart.id}
+                      className="overflow-hidden rounded-lg border"
+                      style={{ borderColor: 'var(--border-color)' }}
+                    >
+                      {chart.imageUrl && (
+                        <img src={chart.imageUrl} alt={chart.title} className="w-full" />
+                      )}
+                      <div
+                        className="flex items-center justify-between px-3 py-2"
+                        style={{ background: 'var(--bg-primary)' }}
+                      >
+                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {chart.title}
+                        </span>
+                        <button
+                          onClick={() => onPinChart(chart)}
+                          className="rounded px-2 py-0.5 text-xs hover:bg-white/10"
+                          style={{ color: 'var(--text-tertiary)' }}
+                        >
+                          Pin
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Plan View */}
+        {plan && <PlanView plan={plan} />}
+
+        {/* Stream charts */}
+        {streamCharts.length > 0 && (
+          <div className="space-y-2">
+            {streamCharts.map(chart => (
+              <div
+                key={chart.id}
+                className="overflow-hidden rounded-lg border"
+                style={{ borderColor: 'var(--border-color)' }}
+              >
+                {chart.imageUrl && (
+                  <img src={chart.imageUrl} alt={chart.title} className="w-full" />
+                )}
+                <div
+                  className="flex items-center justify-between px-3 py-2"
+                  style={{ background: 'var(--bg-primary)' }}
+                >
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {chart.title}
+                  </span>
+                  <button
+                    onClick={() => onPinChart(chart)}
+                    className="rounded px-2 py-0.5 text-xs hover:bg-white/10"
+                    style={{ color: 'var(--text-tertiary)' }}
+                  >
+                    Pin
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Insight from synthesis */}
+        {insight && (
+          <div
+            className="rounded-xl border px-4 py-3 text-sm leading-relaxed"
+            style={{ borderColor: 'var(--border-color)' }}
+          >
+            <p className="whitespace-pre-wrap">{insight}</p>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="flex items-center gap-2 px-4 py-3">
+              <div className="flex gap-1">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: 'var(--text-tertiary)' }} />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: 'var(--text-tertiary)', animationDelay: '0.2s' }} />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: 'var(--text-tertiary)', animationDelay: '0.4s' }} />
+              </div>
+              <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                {isStreaming ? '분석 중...' : 'Analyzing...'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Suggestion Chips — 스트리밍 중에는 live state, 완료 후에는 chatMessages에서 */}
+      {(() => {
+        const liveFollowUps = isStreaming ? followUpQuestions : []
+        const lastAssistant = !isStreaming
+          ? [...messages].reverse().find(m => m.role === 'assistant' && m.followUpQuestions && m.followUpQuestions.length > 0)
+          : null
+        const activeFollowUps = liveFollowUps.length > 0
+          ? liveFollowUps
+          : lastAssistant?.followUpQuestions ?? []
+        return activeFollowUps.length > 0 && !loading ? (
+          <div className="border-t px-4 py-2" style={{ borderColor: 'var(--border-color)' }}>
+            <SuggestionChips questions={activeFollowUps} onSelect={handleSuggestionSelect} />
+          </div>
+        ) : null
+      })()}
+
+      {/* Input */}
+      <div className="border-t p-4" style={{ borderColor: 'var(--border-color)' }}>
+        <div
+          className="flex items-end gap-2 rounded-xl border px-4 py-3"
+          style={{ background: 'var(--bg-input)', borderColor: 'var(--border-color)' }}
+        >
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="데이터에 대해 질문하세요..."
+            rows={1}
+            className="flex-1 resize-none bg-transparent text-sm outline-none"
+            style={{ color: 'var(--text-primary)', maxHeight: '120px' }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || loading}
+            className="shrink-0 rounded-lg p-2 disabled:opacity-20"
+            style={{ background: input.trim() ? 'var(--accent)' : 'transparent' }}
+            aria-label="Send"
+          >
+            <svg
+              width="14" height="14" fill="none"
+              stroke={input.trim() ? '#050505' : 'var(--text-tertiary)'}
+              strokeWidth="2" viewBox="0 0 24 24"
+            >
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+  )
+}
