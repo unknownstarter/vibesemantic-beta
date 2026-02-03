@@ -151,6 +151,127 @@ async function synthesize(
   return { insight, citations, followUpQuestions }
 }
 
+// ========== Fast Path ==========
+
+function classifyQuery(
+  question: string,
+  metadata: MetadataSummary[],
+  history: Array<{ role: string; content: string }>,
+): { isFastPath: boolean } {
+  const simplePatterns = [
+    /평균|mean|average/i, /합계|sum|total/i,
+    /최대|최소|max|min/i, /개수|count|몇/i,
+    /분포|distribution/i, /상관|correlation/i,
+    /비율|percentage/i, /그룹|group/i,
+    /요약|describe|summary/i, /표준편차|std/i,
+  ]
+  const isSimple = simplePatterns.some(p => p.test(question))
+  const isSingleFile = metadata.length <= 1
+  const isShort = question.length < 150
+  const isEarlyConversation = history.length <= 2
+  return { isFastPath: isSimple && isSingleFile && isShort && isEarlyConversation }
+}
+
+async function runFastPath(
+  question: string,
+  metadata: MetadataSummary[],
+  filePathContext: string,
+  outputsDir: string,
+  onEvent: (event: AgentEvent) => void,
+): Promise<AgentResult> {
+  const stepId = uuid()
+  const planId = uuid()
+
+  // Single-step plan
+  const plan: AnalysisPlan = {
+    id: planId,
+    goal: question,
+    steps: [{ id: stepId, order: 1, description: question, status: 'running' as const }],
+    status: 'executing',
+  }
+  onEvent({ type: 'plan', data: plan })
+  onEvent({ type: 'step_start', data: { stepId, description: question } })
+
+  // Generate code with Haiku (fast + cheap)
+  const dataContext = metadata.map(m =>
+    `파일: ${m.name}\n컬럼: ${m.columns.join(', ')}\n샘플:\n${JSON.stringify(m.sample.slice(0, 3), null, 2)}`
+  ).join('\n\n')
+
+  const system = buildStepCoderSystem(dataContext)
+  const prompt = `${question}\n\n파일 경로:\n${filePathContext}\n\n차트 생성 시 저장 경로: ${outputsDir}/${uuid()}.png`
+
+  const text = await callClaude({
+    model: MODEL_INTERPRET, // Haiku for fast path
+    systemBlocks: [withCacheControl(system)],
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 2048,
+    temperature: 0,
+  })
+
+  const code = extractPythonCode(text)
+  const validation = validateCode(code)
+
+  if (!validation.safe) {
+    plan.steps[0].status = 'failed'
+    plan.status = 'failed'
+    const insight = `보안 검증 실패: ${validation.reason}`
+    onEvent({ type: 'synthesis', data: { insight, citations: [] } })
+    onEvent({ type: 'complete', data: { plan, insight, citations: [], charts: [], followUpQuestions: [] } })
+    return { plan, insight, citations: [], charts: [], followUpQuestions: [] }
+  }
+
+  // Execute with short timeout (5s)
+  const result = await executePython(code, process.cwd(), 5000)
+
+  const charts: ChartData[] = result.generatedFiles
+    .filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
+    .map(f => ({
+      id: uuid(),
+      type: 'bar' as const,
+      title: question,
+      data: [],
+      imageUrl: `/api/outputs/${f}`,
+    }))
+
+  plan.steps[0].status = result.exitCode === 0 ? 'success' : 'failed'
+  plan.steps[0].code = code
+  plan.steps[0].result = {
+    stdout: result.stdout,
+    generatedFiles: result.generatedFiles,
+    cachedFiles: [],
+    summary: result.stdout.slice(0, 500),
+  }
+  plan.status = result.exitCode === 0 ? 'complete' : 'failed'
+
+  onEvent({
+    type: 'step_complete',
+    data: {
+      stepId,
+      result: plan.steps[0].result,
+      charts: charts.length > 0 ? charts : undefined,
+    },
+  })
+
+  // Use stdout directly as insight (skip synthesize LLM call)
+  const insight = result.exitCode === 0
+    ? result.stdout.slice(0, 3000) || '분석이 완료되었습니다.'
+    : `실행 실패: ${result.stderr.slice(0, 500)}`
+
+  onEvent({ type: 'synthesis', data: { insight, citations: [] } })
+  onEvent({ type: 'follow_ups', data: { questions: [] } })
+
+  const agentResult: AgentResult = {
+    plan,
+    insight,
+    citations: [],
+    charts,
+    followUpQuestions: [],
+  }
+
+  onEvent({ type: 'complete', data: agentResult })
+  return agentResult
+}
+
 // ========== Main Agent Loop ==========
 
 export async function runAgentLoop(
@@ -165,6 +286,12 @@ export async function runAgentLoop(
   store: SessionStore,
   onEvent: (event: AgentEvent) => void,
 ): Promise<AgentResult> {
+  // Fast path: 간단 쿼리는 Haiku 1회 호출로 처리
+  const classification = classifyQuery(question, metadata, history)
+  if (classification.isFastPath && caches.length === 0) {
+    return runFastPath(question, metadata, filePathContext, outputsDir, onEvent)
+  }
+
   const cacheContext = buildCacheContext(caches)
   const learnedContextStr = buildLearnedContextString(context)
   const dataContext = metadata.map(m =>

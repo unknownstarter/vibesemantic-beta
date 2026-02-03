@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useCallback, useRef } from 'react'
-import type { FileMetadata, ChartData, ChatMessage, DataProfile, QuickAction } from '@/lib/types'
+import type { FileMetadata, ChartData, ChatMessage, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
+import DataTable from './components/DataTable'
 import ResearchPanel from './components/ResearchPanel'
 import { useAgentStream, type AgentCompleteResult } from './hooks/useAgentStream'
 
@@ -24,6 +25,8 @@ export default function Home() {
   const [isChatOpen, setIsChatOpen] = useState(true)
   const [profile, setProfile] = useState<DataProfile | null>(null)
   const [quickActions, setQuickActions] = useState<QuickAction[]>([])
+  const [briefing, setBriefing] = useState<DataBriefing | null>(null)
+  const [showDataTable, setShowDataTable] = useState(false)
 
   const chatInputRef = useRef<string>('')
 
@@ -34,6 +37,7 @@ export default function Home() {
     charts: ChartData[],
     newProfile?: DataProfile,
     newQuickActions?: QuickAction[],
+    newBriefing?: DataBriefing,
   ) => {
     const mapped: UploadedFile[] = newFiles.map(f => ({
       id: f.id,
@@ -47,6 +51,17 @@ export default function Home() {
     setDashboardCharts(prev => [...prev, ...charts])
     if (newProfile) setProfile(newProfile)
     if (newQuickActions) setQuickActions(newQuickActions)
+    if (newBriefing) {
+      setBriefing(newBriefing)
+      setIsChatOpen(true)
+      if (newBriefing.greeting) {
+        setChatMessages([{
+          role: 'assistant',
+          content: newBriefing.greeting,
+          followUpQuestions: newBriefing.suggestedQuestions,
+        } as ChatMessage])
+      }
+    }
   }, [])
 
   const handlePinChart = useCallback((chart: ChartData) => {
@@ -112,6 +127,28 @@ export default function Home() {
     )
   }, [agent, selectedFileIds, chatMessages, handleAnalysisComplete])
 
+  // Confirm briefing and save context to server
+  const handleConfirmBriefing = useCallback(async (confirmed: DataBriefing) => {
+    setBriefing(confirmed)
+    const fileId = selectedFileIds[0]
+    if (fileId) {
+      try {
+        await fetch('/api/context', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileId,
+            domain: confirmed.domain,
+            businessContext: confirmed.briefing,
+            columnMeanings: confirmed.columnMeanings,
+          }),
+        })
+      } catch (err) {
+        console.error('[CONTEXT SAVE]', err)
+      }
+    }
+  }, [selectedFileIds])
+
   // Get sample data for DataTable
   const sampleData = files.length > 0 ? files[files.length - 1].sample : undefined
   const sampleColumns = files.length > 0 ? files[files.length - 1].columns : undefined
@@ -126,17 +163,24 @@ export default function Home() {
         onFilesUploaded={handleFilesUploaded}
         quickActions={quickActions}
         onQuickAction={handleQuickAction}
+        onToggleDataTable={() => setShowDataTable(prev => !prev)}
+        showDataTable={showDataTable}
       />
 
       {/* Main Dashboard */}
       <main className="flex-1 overflow-y-auto p-6">
+        {showDataTable && sampleData && sampleColumns && (
+          <div className="mb-4">
+            <DataTable data={sampleData} columns={sampleColumns} />
+          </div>
+        )}
         <Dashboard
           charts={dashboardCharts}
           pinnedCharts={pinnedCharts}
           onUnpinChart={handleUnpinChart}
           profile={profile}
-          sampleData={sampleData}
-          sampleColumns={sampleColumns}
+          briefing={briefing}
+          onConfirmBriefing={handleConfirmBriefing}
           onChartClick={handleChartClick}
         />
       </main>
@@ -155,6 +199,7 @@ export default function Home() {
           followUpQuestions={agent.followUpQuestions}
           streamCharts={agent.streamCharts}
           onStartAnalysis={handleStartAnalysis}
+          elapsedSeconds={agent.elapsedSeconds}
         />
       )}
 

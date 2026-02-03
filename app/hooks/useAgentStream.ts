@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { AnalysisPlan, ChartData, Citation, AgentEvent } from '@/lib/types'
 
 interface AgentStreamState {
@@ -11,6 +11,7 @@ interface AgentStreamState {
   followUpQuestions: string[]
   streamCharts: ChartData[]
   error: string | null
+  elapsedSeconds: number
 }
 
 export interface AgentCompleteResult {
@@ -28,7 +29,28 @@ export function useAgentStream() {
     followUpQuestions: [],
     streamCharts: [],
     error: null,
+    elapsedSeconds: 0,
   })
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  const startTimer = useCallback(() => {
+    stopTimer()
+    setState(prev => ({ ...prev, elapsedSeconds: 0 }))
+    timerRef.current = setInterval(() => {
+      setState(prev => ({ ...prev, elapsedSeconds: prev.elapsedSeconds + 1 }))
+    }, 1000)
+  }, [stopTimer])
+
+  // Cleanup on unmount
+  useEffect(() => stopTimer, [stopTimer])
 
   const startAnalysis = useCallback(async (
     question: string,
@@ -46,7 +68,9 @@ export function useAgentStream() {
       followUpQuestions: [],
       streamCharts: [],
       error: null,
+      elapsedSeconds: 0,
     }))
+    startTimer()
 
     // 로컬 변수로 결과 누적 (state와 별도로)
     let localInsight = ''
@@ -61,6 +85,7 @@ export function useAgentStream() {
       })
 
       if (!response.body) {
+        stopTimer()
         setState(prev => ({ ...prev, isStreaming: false, error: 'No response stream' }))
         return
       }
@@ -130,6 +155,7 @@ export function useAgentStream() {
                 setState(prev => ({ ...prev, error: event.data.message }))
                 break
               case 'complete':
+                stopTimer()
                 // onComplete 콜백으로 결과 전달 → page.tsx에서 chatMessages에 영속화
                 if (onComplete) {
                   onComplete({
@@ -147,6 +173,7 @@ export function useAgentStream() {
                   citations: [],
                   followUpQuestions: [],
                   streamCharts: [],
+                  elapsedSeconds: 0,
                 }))
                 return // complete 후 루프 종료
             }
@@ -154,10 +181,12 @@ export function useAgentStream() {
         }
       }
     } catch (err) {
+      stopTimer()
       setState(prev => ({ ...prev, error: String(err) }))
     }
 
     // complete 이벤트 없이 스트림 종료된 경우에도 콜백 호출
+    stopTimer()
     setState(prev => {
       if (prev.isStreaming && onComplete && (localInsight || localCharts.length > 0)) {
         onComplete({
@@ -173,11 +202,12 @@ export function useAgentStream() {
           citations: [],
           followUpQuestions: [],
           streamCharts: [],
+          elapsedSeconds: 0,
         }
       }
-      return { ...prev, isStreaming: false }
+      return { ...prev, isStreaming: false, elapsedSeconds: 0 }
     })
-  }, [])
+  }, [startTimer, stopTimer])
 
   return { ...state, startAnalysis }
 }

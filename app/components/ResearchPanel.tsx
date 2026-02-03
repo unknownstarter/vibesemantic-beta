@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ChatMessage, ChartData, AnalysisPlan } from '@/lib/types'
+import ImageModal from './ImageModal'
+import MarkdownRenderer from './MarkdownRenderer'
 import PlanView from './PlanView'
 import SuggestionChips from './SuggestionChips'
 import ExportButton from './ExportButton'
@@ -18,6 +20,7 @@ interface ResearchPanelProps {
   followUpQuestions: string[]
   streamCharts: ChartData[]
   onStartAnalysis: (question: string) => void
+  elapsedSeconds?: number
 }
 
 export default function ResearchPanel({
@@ -32,9 +35,11 @@ export default function ResearchPanel({
   followUpQuestions,
   streamCharts,
   onStartAnalysis,
+  elapsedSeconds,
 }: ResearchPanelProps) {
   const [input, setInput] = useState('')
   const [isLegacyLoading, setIsLegacyLoading] = useState(false)
+  const [modalImage, setModalImage] = useState<{ src: string; alt: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -107,14 +112,18 @@ export default function ResearchPanel({
   }
 
   const handleSuggestionSelect = (question: string) => {
-    setInput(question)
+    if (loading) return
+    const userMsg: ChatMessage = { role: 'user', content: question }
+    onMessagesChange([...messages, userMsg])
+    setInput('')
+    onStartAnalysis(question)
   }
 
   const loading = isLegacyLoading || isStreaming
 
   return (
     <aside
-      className="flex w-[420px] flex-col border-l"
+      className="flex w-[520px] flex-col border-l"
       style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}
     >
       {/* Header */}
@@ -169,7 +178,11 @@ export default function ResearchPanel({
                 border: msg.role === 'assistant' ? '1px solid var(--border-color)' : 'none',
               }}
             >
-              <p className="whitespace-pre-wrap">{msg.content}</p>
+              {msg.role === 'assistant' ? (
+                <MarkdownRenderer content={msg.content} />
+              ) : (
+                <p className="whitespace-pre-wrap">{msg.content}</p>
+              )}
 
               {msg.code && (
                 <details className="mt-3">
@@ -194,7 +207,12 @@ export default function ResearchPanel({
                       style={{ borderColor: 'var(--border-color)' }}
                     >
                       {chart.imageUrl && (
-                        <img src={chart.imageUrl} alt={chart.title} className="w-full" />
+                        <img
+                          src={chart.imageUrl}
+                          alt={chart.title}
+                          className="w-full cursor-pointer"
+                          onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
+                        />
                       )}
                       <div
                         className="flex items-center justify-between px-3 py-2"
@@ -220,7 +238,7 @@ export default function ResearchPanel({
         ))}
 
         {/* Plan View */}
-        {plan && <PlanView plan={plan} />}
+        {plan && <PlanView plan={plan} elapsedSeconds={elapsedSeconds} />}
 
         {/* Stream charts */}
         {streamCharts.length > 0 && (
@@ -232,7 +250,12 @@ export default function ResearchPanel({
                 style={{ borderColor: 'var(--border-color)' }}
               >
                 {chart.imageUrl && (
-                  <img src={chart.imageUrl} alt={chart.title} className="w-full" />
+                  <img
+                    src={chart.imageUrl}
+                    alt={chart.title}
+                    className="w-full cursor-pointer"
+                    onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
+                  />
                 )}
                 <div
                   className="flex items-center justify-between px-3 py-2"
@@ -260,7 +283,7 @@ export default function ResearchPanel({
             className="rounded-xl border px-4 py-3 text-sm leading-relaxed"
             style={{ borderColor: 'var(--border-color)' }}
           >
-            <p className="whitespace-pre-wrap">{insight}</p>
+            <MarkdownRenderer content={insight} />
           </div>
         )}
 
@@ -274,7 +297,14 @@ export default function ResearchPanel({
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: 'var(--text-tertiary)', animationDelay: '0.4s' }} />
               </div>
               <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                {isStreaming ? '분석 중...' : 'Analyzing...'}
+                {isStreaming
+                  ? plan
+                    ? `${plan.steps.filter(s => s.status === 'success').length}/${plan.steps.length}단계 실행 중...`
+                    : '분석 계획 수립 중...'
+                  : 'Analyzing...'}
+                {elapsedSeconds != null && elapsedSeconds > 0 && (
+                  <span className="ml-1">{elapsedSeconds}초</span>
+                )}
               </span>
             </div>
           </div>
@@ -331,6 +361,12 @@ export default function ResearchPanel({
           </button>
         </div>
       </div>
+      <ImageModal
+        src={modalImage?.src ?? ''}
+        alt={modalImage?.alt ?? ''}
+        open={modalImage !== null}
+        onClose={() => setModalImage(null)}
+      />
     </aside>
   )
 }
