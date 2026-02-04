@@ -3,11 +3,11 @@ import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 import { v4 as uuid } from 'uuid'
 import { extractMetadata } from '@/lib/metadata'
-import { buildAutoDashboard, generateQuickActions } from '@/lib/dashboard'
+import { buildAutoDashboard, generateQuickActions, curateDashboard } from '@/lib/dashboard'
 import { runSmartProfile } from '@/lib/profile'
 import { inferContext } from '@/lib/briefing'
 import { getSessionStore } from '@/lib/sessions'
-import type { FileMetadata, ChartData, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
+import type { FileMetadata, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     const store = getSessionStore()
     const results: FileMetadata[] = []
-    const allCharts: ChartData[] = []
+    const allCharts: ReturnType<typeof buildAutoDashboard> = []
     let profile: DataProfile | undefined
     let briefing: DataBriefing | undefined
     let quickActions: QuickAction[] = []
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
         path: filePath,
         columns: meta.columns,
         rowCount: meta.rowCount,
-        sample: meta.sample,
+        sample: meta.sample.slice(0, 5),
         createdAt: new Date().toISOString(),
       }
       results.push(fileMetadata)
@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
         fileName: file.name,
         columns: meta.columns,
         rowCount: meta.rowCount,
+        sample: meta.sample,
       })
       allCharts.push(...dashboardCharts)
 
@@ -82,10 +83,13 @@ export async function POST(request: NextRequest) {
       briefing = await inferContext(metaSummary, profile ?? null)
     }
 
+    // 전체 차트에서 핵심 6개만 큐레이션
+    const curatedCharts = curateDashboard(allCharts, 6)
+
     return NextResponse.json({
       data: {
         files: results,
-        charts: allCharts,
+        charts: curatedCharts,
         profile,
         quickActions,
         briefing,

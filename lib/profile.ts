@@ -5,7 +5,7 @@ function buildProfileScript(filePath: string): string {
   return `
 import pandas as pd, numpy as np, json, sys
 
-df = pd.read_csv("${filePath}")
+df = pd.read_csv("${filePath}", comment='#', encoding_errors='replace')
 result = {"warnings": [], "correlations": [], "distributions": []}
 
 # 1. 데이터 품질 검사

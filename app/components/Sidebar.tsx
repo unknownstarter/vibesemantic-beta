@@ -116,7 +116,8 @@ export default function Sidebar({
       </div>
 
       {/* Upload Area */}
-      <div
+      <label
+        htmlFor="csv-upload"
         className={`m-3 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 ${
           isDragging ? 'border-blue-400 bg-blue-400/10' : ''
         }`}
@@ -126,14 +127,14 @@ export default function Sidebar({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
       >
         <input
+          id="csv-upload"
           ref={fileInputRef}
           type="file"
           accept=".csv"
           multiple
-          className="absolute h-0 w-0 overflow-hidden opacity-0"
+          className="sr-only"
           onChange={(e) => e.target.files && handleUpload(e.target.files)}
         />
         {isUploading ? (
@@ -160,7 +161,7 @@ export default function Sidebar({
             </span>
           </>
         )}
-      </div>
+      </label>
 
       {/* File List */}
       <div className="flex-1 overflow-y-auto px-3 pb-3">

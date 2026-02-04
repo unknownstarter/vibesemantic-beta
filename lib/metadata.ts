@@ -8,8 +8,10 @@ interface MetadataResult {
 }
 
 export async function extractMetadata(filePath: string): Promise<MetadataResult> {
-  const content = await fs.readFile(filePath, 'utf-8')
-  const lines = content.split('\n').filter(line => line.trim() !== '')
+  let content = await fs.readFile(filePath, 'utf-8')
+  // Strip UTF-8 BOM if present
+  if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1)
+  const lines = content.split('\n').filter(line => line.trim() !== '' && !line.trim().startsWith('#'))
 
   if (lines.length === 0) {
     return { columns: [], rowCount: 0, sample: [] }
@@ -26,7 +28,7 @@ export async function extractMetadata(filePath: string): Promise<MetadataResult>
     rows.push(row)
   }
 
-  const sample = rows.slice(0, 5)
+  const sample = rows.slice(0, 50)
   const columns: ColumnInfo[] = headers.map(name => {
     const values = rows.map(r => r[name])
     const colType = inferType(values)

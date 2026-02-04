@@ -5,119 +5,234 @@ interface DashboardInput {
   fileName: string
   columns: ColumnInfo[]
   rowCount: number
+  sample: Record<string, unknown>[]
 }
 
-export function buildAutoDashboard(input: DashboardInput): ChartData[] {
-  const charts: ChartData[] = []
-  const { fileName, columns, rowCount } = input
+// ========== 컬럼 의미 분류 ==========
 
-  // 1. 요약 카드
-  charts.push(buildSummaryChart(fileName, rowCount, columns))
+type SemanticType = 'count' | 'rate' | 'time' | 'revenue' | 'per_user' | 'generic'
 
-  // 2. 수치형 컬럼 → 히스토그램 또는 바 차트
+function classifyColumn(col: ColumnInfo): SemanticType {
+  const name = col.name.toLowerCase()
+  if (/율|비율|rate|ratio|전환/.test(name)) return 'rate'
+  if (/시간|time|duration/.test(name)) return 'time'
+  if (/수익|매출|revenue|금액|amount/.test(name)) return 'revenue'
+  if (/당|per/.test(name)) return 'per_user'
+  if (/수$|수\b|count|사용자|세션|조회|이벤트|방문/.test(name)) return 'count'
+  if (col.stats && col.stats.min >= 0 && col.stats.max <= 1) return 'rate'
+  return 'generic'
+}
+
+function scaleGroup(semantic: SemanticType): string {
+  switch (semantic) {
+    case 'count': return 'count'
+    case 'rate': return 'rate'
+    case 'time': return 'time'
+    case 'revenue': return 'revenue'
+    case 'per_user': return 'per_user'
+    default: return 'generic'
+  }
+}
+
+// ========== 차트 우선순위 (큐레이션용) ==========
+
+interface ScoredChart extends ChartData {
+  _priority: number // 높을수록 중요
+  _source: string   // 출처 파일명
+}
+
+// ========== 메인 대시보드 빌더 ==========
+
+export function buildAutoDashboard(input: DashboardInput): ScoredChart[] {
+  const charts: ScoredChart[] = []
+  const { fileName, columns, sample } = input
+
   const numericCols = columns.filter(c => c.type === 'number' && c.stats)
-  if (numericCols.length > 0) {
-    charts.push(buildNumericOverview(numericCols))
-  }
-
-  // 3. 범주형 컬럼 → 파이/바 차트 (유니크 값 2~20개인 경우)
-  const categoricalCols = columns.filter(
-    c => c.type === 'string' && c.topValues && c.uniqueCount >= 2 && c.uniqueCount <= 20
+  const categoryCols = columns.filter(
+    c => c.type === 'string' && c.topValues && c.uniqueCount >= 2 && c.uniqueCount <= 50
   )
-  for (const col of categoricalCols.slice(0, 3)) {
-    charts.push(buildCategoryChart(col))
+  const stringCols = columns.filter(c => c.type === 'string')
+  const labelCol = categoryCols.length > 0 ? categoryCols[0] : (stringCols.length > 0 ? stringCols[0] : null)
+
+  // 1. 카테고리 → 핵심 메트릭 차트 (가장 가치 높은 차트)
+  if (categoryCols.length > 0 && numericCols.length > 0 && sample.length > 0) {
+    const catCol = categoryCols[0]
+    const primaryMetric = findPrimaryMetric(numericCols)
+    if (primaryMetric) {
+      const chart = buildCategoryMetricChart(catCol, primaryMetric, sample)
+      charts.push({ ...chart, _priority: 100, _source: fileName })
+    }
+
+    // 2순위 메트릭으로 추가 카테고리 차트 (다른 관점)
+    const secondMetric = findSecondaryMetric(numericCols, primaryMetric)
+    if (secondMetric) {
+      const chart = buildCategoryMetricChart(catCol, secondMetric, sample)
+      charts.push({ ...chart, _priority: 80, _source: fileName })
+    }
   }
 
-  // 4. 수치형 2개 이상이면 첫 번째 쌍으로 비교 바 차트
-  if (numericCols.length >= 2) {
-    charts.push(buildComparisonChart(numericCols[0], numericCols[1]))
+  // 2. 스케일 호환 비교 차트 (카테고리 차트가 없거나 보조용)
+  const scaleGroups = groupByScale(numericCols)
+  for (const [group, cols] of Object.entries(scaleGroups)) {
+    if (cols.length >= 2) {
+      const chart = buildScaleAwareComparison(cols[0], cols[1], sample, group, labelCol)
+      // 카테고리 차트가 이미 있으면 우선순위 낮춤
+      const priority = charts.length === 0 ? 70 : 40
+      charts.push({ ...chart, _priority: priority, _source: fileName })
+      break
+    }
   }
 
   return charts
 }
 
-function buildSummaryChart(fileName: string, rowCount: number, columns: ColumnInfo[]): ChartData {
-  const numericCount = columns.filter(c => c.type === 'number').length
-  const stringCount = columns.filter(c => c.type === 'string').length
-  const dateCount = columns.filter(c => c.type === 'date').length
+/** 전체 파일에서 생성된 차트를 큐레이션하여 최적 세트 반환 */
+export function curateDashboard(allCharts: ScoredChart[], maxCharts: number = 6): ChartData[] {
+  // 우선순위 내림차순 정렬
+  const sorted = [...allCharts].sort((a, b) => b._priority - a._priority)
 
-  const data: Array<Record<string, unknown>> = [
-    { label: '총 행 수', value: rowCount.toLocaleString() },
-    { label: '컬럼 수', value: String(columns.length) },
-    { label: '수치형', value: String(numericCount) },
-    { label: '문자형', value: String(stringCount) },
-  ]
-  if (dateCount > 0) {
-    data.push({ label: '날짜형', value: String(dateCount) })
+  // 중복 제거: 같은 제목의 차트는 우선순위 높은 것만
+  const seen = new Set<string>()
+  const unique = sorted.filter(c => {
+    if (seen.has(c.title)) return false
+    seen.add(c.title)
+    return true
+  })
+
+  // 소스 다양성: 라운드 로빈으로 각 파일에서 균등 선택
+  const bySource = new Map<string, ScoredChart[]>()
+  for (const c of unique) {
+    if (!bySource.has(c._source)) bySource.set(c._source, [])
+    bySource.get(c._source)!.push(c)
   }
 
-  return {
-    id: uuid(),
-    type: 'summary',
-    title: `${fileName} 요약`,
-    data,
+  const selected: ScoredChart[] = []
+  const sources = [...bySource.keys()]
+  let round = 0
+  while (selected.length < maxCharts) {
+    let added = false
+    for (const src of sources) {
+      if (selected.length >= maxCharts) break
+      const srcCharts = bySource.get(src)!
+      if (round < srcCharts.length) {
+        selected.push(srcCharts[round])
+        added = true
+      }
+    }
+    if (!added) break
+    round++
   }
+
+  // _priority, _source 필드 제거하여 ChartData로 반환
+  return selected.map(({ _priority, _source, ...chart }) => chart)
 }
 
-function buildNumericOverview(numericCols: ColumnInfo[]): ChartData {
-  const data = numericCols.map(col => ({
-    name: col.name,
-    평균: col.stats!.mean,
-    중앙값: col.stats!.median,
-    최솟값: col.stats!.min,
-    최댓값: col.stats!.max,
-  }))
+// ========== 차트 빌더 함수들 ==========
+
+/** 카테고리별 실제 메트릭 값 바차트 (예: 채널별 세션수) */
+function buildCategoryMetricChart(
+  catCol: ColumnInfo,
+  metricCol: ColumnInfo,
+  sample: Record<string, unknown>[],
+): ChartData {
+  const dataMap = new Map<string, number>()
+  for (const row of sample) {
+    const cat = String(row[catCol.name] ?? '')
+    const val = Number(row[metricCol.name] ?? 0)
+    if (cat && !isNaN(val)) {
+      dataMap.set(cat, (dataMap.get(cat) ?? 0) + val)
+    }
+  }
+
+  const data = [...dataMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, value]) => ({
+      name: name.length > 15 ? name.slice(0, 15) + '…' : name,
+      value,
+    }))
 
   return {
     id: uuid(),
     type: 'bar',
-    title: '수치형 컬럼 통계',
+    title: `${catCol.name}별 ${metricCol.name}`,
     data,
     xKey: 'name',
-    yKey: '평균',
+    yKey: 'value',
   }
 }
 
-function buildCategoryChart(col: ColumnInfo): ChartData {
-  const data = col.topValues!.map(tv => ({
-    name: tv.value,
-    count: tv.count,
-  }))
+/** 같은 스케일 컬럼끼리 비교 */
+function buildScaleAwareComparison(
+  col1: ColumnInfo,
+  col2: ColumnInfo,
+  sample: Record<string, unknown>[],
+  _group: string,
+  labelCol: ColumnInfo | null = null,
+): ChartData {
+  const raw = sample
+    .map((row) => ({
+      label: labelCol ? String(row[labelCol.name] ?? '') : '',
+      v1: Number(row[col1.name] ?? 0),
+      v2: Number(row[col2.name] ?? 0),
+    }))
+    .filter(d => d.v1 !== 0 || d.v2 !== 0)
+    .sort((a, b) => b.v1 - a.v1)
+    .slice(0, 10)
 
-  const type: ChartData['type'] = col.uniqueCount <= 6 ? 'pie' : 'bar'
+  const hasLabels = labelCol && raw.some(d => d.label.length > 0)
+  const data = raw.map((d, i) => {
+    const name = hasLabels
+      ? (d.label.length > 12 ? d.label.slice(0, 12) + '…' : d.label)
+      : String(i + 1)
+    return { name, [col1.name]: d.v1, [col2.name]: d.v2 }
+  })
+
+  const type: ChartData['type'] = hasLabels ? 'bar' : (data.length > 5 ? 'line' : 'bar')
 
   return {
     id: uuid(),
     type,
-    title: `${col.name} 분포`,
-    data,
-    xKey: 'name',
-    yKey: 'count',
-  }
-}
-
-function buildComparisonChart(col1: ColumnInfo, col2: ColumnInfo): ChartData {
-  const data = [
-    {
-      name: col1.name,
-      평균: col1.stats!.mean,
-      중앙값: col1.stats!.median,
-    },
-    {
-      name: col2.name,
-      평균: col2.stats!.mean,
-      중앙값: col2.stats!.median,
-    },
-  ]
-
-  return {
-    id: uuid(),
-    type: 'bar',
     title: `${col1.name} vs ${col2.name}`,
     data,
     xKey: 'name',
-    yKey: '평균',
+    yKey: col1.name,
   }
+}
+
+// ========== 유틸리티 ==========
+
+function findPrimaryMetric(numericCols: ColumnInfo[]): ColumnInfo | null {
+  const countCols = numericCols.filter(c => classifyColumn(c) === 'count')
+  if (countCols.length > 0) {
+    return countCols.sort((a, b) => (b.stats?.mean ?? 0) - (a.stats?.mean ?? 0))[0]
+  }
+  return numericCols.sort((a, b) => (b.stats?.std ?? 0) - (a.stats?.std ?? 0))[0] ?? null
+}
+
+function findSecondaryMetric(numericCols: ColumnInfo[], primary: ColumnInfo | null): ColumnInfo | null {
+  if (!primary) return null
+  // primary와 다른 컬럼 중 가장 중요한 count 메트릭 (같은 타입 OK)
+  const candidates = numericCols
+    .filter(c => c.name !== primary.name)
+    .sort((a, b) => {
+      // count 타입 우선, 그다음 분산 크기
+      const aIsCount = classifyColumn(a) === 'count' ? 1 : 0
+      const bIsCount = classifyColumn(b) === 'count' ? 1 : 0
+      if (aIsCount !== bIsCount) return bIsCount - aIsCount
+      return (b.stats?.std ?? 0) - (a.stats?.std ?? 0)
+    })
+  return candidates[0] ?? null
+}
+
+function groupByScale(cols: ColumnInfo[]): Record<string, ColumnInfo[]> {
+  const groups: Record<string, ColumnInfo[]> = {}
+  for (const col of cols) {
+    const group = scaleGroup(classifyColumn(col))
+    if (!groups[group]) groups[group] = []
+    groups[group].push(col)
+  }
+  return groups
 }
 
 // ========== Quick Actions 생성 ==========
@@ -131,7 +246,6 @@ export function generateQuickActions(columns: ColumnInfo[]): QuickAction[] {
   const highMissingCols = columns.filter(c => c.nullCount > 0)
   const highCardinalityCols = columns.filter(c => c.type === 'string' && c.uniqueCount > 20)
 
-  // 날짜 + 수치 → 시계열 분석
   if (dateCols.length > 0 && numericCols.length > 0) {
     const dateCol = dateCols[0]
     const numCol = numericCols[0]
@@ -145,7 +259,6 @@ export function generateQuickActions(columns: ColumnInfo[]): QuickAction[] {
     })
   }
 
-  // 범주형 + 수치형 → 그룹비교
   if (categoryCols.length > 0 && numericCols.length > 0) {
     const catCol = categoryCols[0]
     const numCol = numericCols[0]
@@ -159,7 +272,6 @@ export function generateQuickActions(columns: ColumnInfo[]): QuickAction[] {
     })
   }
 
-  // 수치형 2개+ → 상관분석
   if (numericCols.length >= 2) {
     const col1 = numericCols[0]
     const col2 = numericCols[1]
@@ -173,7 +285,6 @@ export function generateQuickActions(columns: ColumnInfo[]): QuickAction[] {
     })
   }
 
-  // 결측치가 있는 컬럼 → 결측치 패턴 분석
   if (highMissingCols.length > 0) {
     const colNames = highMissingCols.slice(0, 3).map(c => c.name)
     actions.push({
@@ -186,7 +297,6 @@ export function generateQuickActions(columns: ColumnInfo[]): QuickAction[] {
     })
   }
 
-  // 고유값 많은 텍스트 → 빈도 분석
   if (highCardinalityCols.length > 0) {
     const col = highCardinalityCols[0]
     actions.push({
