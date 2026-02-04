@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import type { ChartData, ChatMessage } from '@/lib/types'
+import ImageModal from './ImageModal'
 
 interface ChatPanelProps {
   selectedFileIds: string[]
@@ -20,6 +21,7 @@ export default function ChatPanel({
 }: ChatPanelProps) {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [modalImage, setModalImage] = useState<{ src: string; alt: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -154,7 +156,12 @@ export default function ChatPanel({
                       style={{ borderColor: "var(--border-color)" }}
                     >
                       {chart.imageUrl && (
-                        <img src={chart.imageUrl} alt={chart.title} className="w-full" />
+                        <img
+                          src={chart.imageUrl}
+                          alt={chart.title}
+                          className="w-full cursor-pointer"
+                          onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
+                        />
                       )}
                       <div
                         className="flex items-center justify-between px-3 py-2"
@@ -227,6 +234,12 @@ export default function ChatPanel({
           </button>
         </div>
       </div>
+      <ImageModal
+        src={modalImage?.src ?? ''}
+        alt={modalImage?.alt ?? ''}
+        open={modalImage !== null}
+        onClose={() => setModalImage(null)}
+      />
     </aside>
   )
 }

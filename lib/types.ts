@@ -73,6 +73,7 @@ export interface UploadResult {
   charts: ChartData[]
   profile?: DataProfile
   quickActions?: QuickAction[]
+  briefing?: DataBriefing
 }
 
 // 채팅 응답
@@ -225,3 +226,16 @@ export interface ChartClickEvent {
 // ========== Export ==========
 
 export type ExportFormat = 'python' | 'notebook'
+
+// ========== Data Briefing (Infer-Then-Confirm) ==========
+
+export interface DataBriefing {
+  domain: string
+  briefing: string
+  columnMeanings: Record<string, string>
+  keyMetrics: string[]
+  warnings: string[]
+  suggestedQuestions: string[]
+  greeting: string
+  confirmed: boolean
+}

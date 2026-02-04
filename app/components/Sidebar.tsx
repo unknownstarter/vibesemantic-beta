@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useRef, useState } from 'react'
-import type { ChartData, QuickAction, DataProfile, FileMetadata } from '@/lib/types'
+import type { ChartData, QuickAction, DataProfile, FileMetadata, DataBriefing } from '@/lib/types'
 import QuickActions from './QuickActions'
 
 interface UploadedFile {
@@ -16,9 +16,17 @@ interface SidebarProps {
   files: UploadedFile[]
   selectedFileIds: string[]
   onToggleFile: (fileId: string) => void
-  onFilesUploaded: (files: FileMetadata[], charts: ChartData[], profile?: DataProfile, quickActions?: QuickAction[]) => void
+  onFilesUploaded: (
+    files: FileMetadata[],
+    charts: ChartData[],
+    profile?: DataProfile,
+    quickActions?: QuickAction[],
+    briefing?: DataBriefing,
+  ) => void
   quickActions: QuickAction[]
   onQuickAction: (prompt: string) => void
+  onToggleDataTable: () => void
+  showDataTable: boolean
 }
 
 export default function Sidebar({
@@ -28,6 +36,8 @@ export default function Sidebar({
   onFilesUploaded,
   quickActions,
   onQuickAction,
+  onToggleDataTable,
+  showDataTable,
 }: SidebarProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -56,6 +66,7 @@ export default function Sidebar({
           payload.charts || [],
           payload.profile,
           payload.quickActions,
+          payload.briefing,
         )
       } catch (err) {
         console.error('Upload error:', err)
@@ -194,6 +205,18 @@ export default function Sidebar({
               </li>
             ))}
           </ul>
+        )}
+        {files.length > 0 && (
+          <button
+            onClick={onToggleDataTable}
+            className="mt-2 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs hover:bg-white/5"
+            style={{ color: showDataTable ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
+          >
+            <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path d="M3 10h18M3 14h18M3 6h18M3 18h18" />
+            </svg>
+            {showDataTable ? '원본 숨기기' : '원본 보기'}
+          </button>
         )}
       </div>
 

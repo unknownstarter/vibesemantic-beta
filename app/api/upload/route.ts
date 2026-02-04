@@ -5,8 +5,9 @@ import { v4 as uuid } from 'uuid'
 import { extractMetadata } from '@/lib/metadata'
 import { buildAutoDashboard, generateQuickActions } from '@/lib/dashboard'
 import { runSmartProfile } from '@/lib/profile'
+import { inferContext } from '@/lib/briefing'
 import { getSessionStore } from '@/lib/sessions'
-import type { FileMetadata, ChartData, DataProfile, QuickAction } from '@/lib/types'
+import type { FileMetadata, ChartData, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
     const results: FileMetadata[] = []
     const allCharts: ChartData[] = []
     let profile: DataProfile | undefined
+    let briefing: DataBriefing | undefined
     let quickActions: QuickAction[] = []
 
     for (const file of files) {
@@ -70,12 +72,23 @@ export async function POST(request: NextRequest) {
       quickActions = generateQuickActions(meta.columns)
     }
 
+    // Context Inference (Haiku — fast + cheap) — single call with all files
+    if (results.length > 0) {
+      const metaSummary = results.map(f => ({
+        name: f.name,
+        columns: f.columns.map(c => c.name),
+        sample: f.sample,
+      }))
+      briefing = await inferContext(metaSummary, profile ?? null)
+    }
+
     return NextResponse.json({
       data: {
         files: results,
         charts: allCharts,
         profile,
         quickActions,
+        briefing,
       },
     })
   } catch (error) {

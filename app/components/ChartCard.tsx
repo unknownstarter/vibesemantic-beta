@@ -1,10 +1,12 @@
 "use client"
 
+import { useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell,
 } from 'recharts'
 import type { ChartData } from '@/lib/types'
+import ImageModal from './ImageModal'
 
 const COLORS = ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#fb923c', '#22d3ee', '#e879f9']
 
@@ -35,6 +37,7 @@ function generateClickQuestion(
 }
 
 export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick }: ChartCardProps) {
+  const [modalImage, setModalImage] = useState<{ src: string; alt: string } | null>(null)
   const xKey = chart.xKey || 'name'
   const yKey = chart.yKey || 'value'
 
@@ -56,7 +59,8 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick 
         <img
           src={chart.imageUrl}
           alt={chart.title}
-          className="h-64 w-full object-contain"
+          className="h-64 w-full cursor-pointer object-contain"
+          onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
         />
       )
     }
@@ -93,11 +97,12 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick 
             <XAxis dataKey={xKey} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
             <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
             <Tooltip
+              cursor={{ fill: 'transparent' }}
               contentStyle={{
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
+                background: '#ffffff',
+                border: '1px solid #e0e0e0',
                 borderRadius: '8px',
-                color: 'var(--text-primary)',
+                color: '#111111',
               }}
             />
             <Bar dataKey={yKey} radius={[4, 4, 0, 0]}>
@@ -121,11 +126,12 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick 
             <XAxis dataKey={xKey} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
             <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
             <Tooltip
+              cursor={{ stroke: 'var(--text-tertiary)', strokeDasharray: '3 3' }}
               contentStyle={{
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
+                background: '#ffffff',
+                border: '1px solid #e0e0e0',
                 borderRadius: '8px',
-                color: 'var(--text-primary)',
+                color: '#111111',
               }}
             />
             <Line
@@ -163,11 +169,12 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick 
               ))}
             </Pie>
             <Tooltip
+              cursor={false}
               contentStyle={{
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
+                background: '#ffffff',
+                border: '1px solid #e0e0e0',
                 borderRadius: '8px',
-                color: 'var(--text-primary)',
+                color: '#111111',
               }}
             />
           </PieChart>
@@ -218,6 +225,12 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick 
         </p>
       )}
       <div className="p-2">{renderChart()}</div>
+      <ImageModal
+        src={modalImage?.src ?? ''}
+        alt={modalImage?.alt ?? ''}
+        open={modalImage !== null}
+        onClose={() => setModalImage(null)}
+      />
     </div>
   )
 }
