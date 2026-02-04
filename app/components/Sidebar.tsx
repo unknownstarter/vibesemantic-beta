@@ -61,10 +61,14 @@ export default function Sidebar({
 
         const json = await res.json()
         const payload = json.data || json
+        // profiles 배열에서 첫 번째 유효 프로파일 추출 (멀티 섹션 대응)
+        const firstProfile = Array.isArray(payload.profiles)
+          ? payload.profiles[0]
+          : payload.profile
         onFilesUploaded(
           payload.files,
           payload.charts || [],
-          payload.profile,
+          firstProfile,
           payload.quickActions,
           payload.briefing,
         )
@@ -162,8 +166,15 @@ export default function Sidebar({
           </>
         )}
       </label>
+      <p
+        className="mx-3 -mt-1 mb-1 text-center text-[10px] leading-tight"
+        style={{ color: 'var(--text-tertiary)' }}
+      >
+        여러 테이블이 있는 파일도 자동 감지합니다.
+        테이블별로 분리하면 더 정확한 분석이 가능합니다.
+      </p>
 
-      {/* File List */}
+      {/* File List + Quick Actions (scrollable together) */}
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         <p
           className="mb-2 text-xs font-medium uppercase tracking-wider"
@@ -219,10 +230,14 @@ export default function Sidebar({
             {showDataTable ? '원본 숨기기' : '원본 보기'}
           </button>
         )}
-      </div>
 
-      {/* Quick Actions */}
-      <QuickActions actions={quickActions} onAction={onQuickAction} />
+        {/* Quick Actions (inside scroll area) */}
+        {quickActions.length > 0 && (
+          <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border-color)' }}>
+            <QuickActions actions={quickActions} onAction={onQuickAction} />
+          </div>
+        )}
+      </div>
     </aside>
   )
 }

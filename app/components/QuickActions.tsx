@@ -20,7 +20,7 @@ export default function QuickActions({ actions, onAction }: QuickActionsProps) {
   if (actions.length === 0) return null
 
   return (
-    <div className="border-t px-3 py-3" style={{ borderColor: 'var(--border-color)' }}>
+    <div>
       <p
         className="mb-2 text-xs font-medium uppercase tracking-wider"
         style={{ color: 'var(--text-secondary)' }}

@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import type { ColumnInfo, ChartData, QuickAction } from './types'
+import type { MetadataResult } from './metadata'
 
 interface DashboardInput {
   fileName: string
@@ -88,8 +89,11 @@ export function buildAutoDashboard(input: DashboardInput): ScoredChart[] {
 
 /** 전체 파일에서 생성된 차트를 큐레이션하여 최적 세트 반환 */
 export function curateDashboard(allCharts: ScoredChart[], maxCharts: number = 6): ChartData[] {
+  // 데이터 포인트가 2개 미만인 차트 제거 (단일 바 차트는 무의미)
+  const meaningful = allCharts.filter(c => c.data.length >= 2)
+
   // 우선순위 내림차순 정렬
-  const sorted = [...allCharts].sort((a, b) => b._priority - a._priority)
+  const sorted = [...meaningful].sort((a, b) => b._priority - a._priority)
 
   // 중복 제거: 같은 제목의 차트는 우선순위 높은 것만
   const seen = new Set<string>()
@@ -123,8 +127,8 @@ export function curateDashboard(allCharts: ScoredChart[], maxCharts: number = 6)
     round++
   }
 
-  // _priority, _source 필드 제거하여 ChartData로 반환
-  return selected.map(({ _priority, _source, ...chart }) => chart)
+  // _priority 제거, _source → source 변환하여 ChartData로 반환
+  return selected.map(({ _priority, _source, ...chart }) => ({ ...chart, source: _source }))
 }
 
 // ========== 차트 빌더 함수들 ==========
@@ -233,6 +237,99 @@ function groupByScale(cols: ColumnInfo[]): Record<string, ColumnInfo[]> {
     groups[group].push(col)
   }
   return groups
+}
+
+// ========== 교차 섹션 비교 차트 ==========
+
+/** 멀티 섹션 데이터에서 시나리오 비교 차트 생성 */
+export function buildCrossSectionCharts(
+  sections: MetadataResult[],
+  fileName: string,
+): ScoredChart[] {
+  if (sections.length < 2) return []
+
+  const charts: ScoredChart[] = []
+
+  // 모든 섹션에 공통으로 존재하는 숫자 컬럼 찾기
+  const firstCols = new Set(sections[0].columns.filter(c => c.type === 'number').map(c => c.name))
+  const commonNumeric = [...firstCols].filter(colName =>
+    sections.every(s => s.columns.some(c => c.name === colName && c.type === 'number'))
+  )
+
+  // 핵심 메트릭 선정: 분산이 큰 컬럼 우선 (섹션 간 차이가 의미 있는 것)
+  const colsWithVariance = commonNumeric.map(colName => {
+    const means = sections.map(s => {
+      const col = s.columns.find(c => c.name === colName)
+      return col?.stats?.mean ?? 0
+    })
+    const avg = means.reduce((a, b) => a + b, 0) / means.length
+    const variance = avg > 0
+      ? means.reduce((acc, m) => acc + ((m - avg) / avg) ** 2, 0) / means.length
+      : 0
+    return { colName, variance, means }
+  }).filter(c => c.variance > 0.01) // 섹션 간 1% 이상 변동이 있는 것만
+    .sort((a, b) => b.variance - a.variance)
+
+  // 상위 3개 핵심 메트릭으로 교차 비교 차트 생성
+  for (const { colName } of colsWithVariance.slice(0, 3)) {
+    const data = sections.map(s => {
+      const col = s.columns.find(c => c.name === colName)
+      const sectionLabel = s.sectionName ?? '데이터'
+      const shortLabel = sectionLabel.length > 12
+        ? sectionLabel.slice(0, 12) + '…'
+        : sectionLabel
+      return {
+        name: shortLabel,
+        value: col?.stats?.mean ?? 0,
+      }
+    }).filter(d => d.value !== 0)
+
+    if (data.length >= 2) {
+      charts.push({
+        id: uuid(),
+        type: 'bar',
+        title: `시나리오별 ${colName} 비교`,
+        data,
+        xKey: 'name',
+        yKey: 'value',
+        _priority: 95,
+        _source: `교차 분석 — ${fileName}`,
+      })
+    }
+  }
+
+  // 총합 비교 차트: 각 섹션의 주요 count 메트릭 합산
+  const countCols = commonNumeric.filter(colName => {
+    const col = sections[0].columns.find(c => c.name === colName)
+    return col ? classifyColumn(col) === 'count' : false
+  })
+
+  if (countCols.length > 0) {
+    const primaryCount = countCols[0]
+    const data = sections.map(s => {
+      const total = s.sample.reduce((sum, row) => sum + Number(row[primaryCount] ?? 0), 0)
+      const sectionLabel = s.sectionName ?? '데이터'
+      const shortLabel = sectionLabel.length > 12
+        ? sectionLabel.slice(0, 12) + '…'
+        : sectionLabel
+      return { name: shortLabel, value: Math.round(total) }
+    }).filter(d => d.value !== 0)
+
+    if (data.length >= 2) {
+      charts.push({
+        id: uuid(),
+        type: 'bar',
+        title: `시나리오별 ${primaryCount} 합계 비교`,
+        data,
+        xKey: 'name',
+        yKey: 'value',
+        _priority: 90,
+        _source: `교차 분석 — ${fileName}`,
+      })
+    }
+  }
+
+  return charts
 }
 
 // ========== Quick Actions 생성 ==========

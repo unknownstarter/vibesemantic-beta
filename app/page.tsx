@@ -48,18 +48,41 @@ export default function Home() {
     }))
     setFiles(prev => [...prev, ...mapped])
     setSelectedFileIds(prev => [...prev, ...newFiles.map(f => f.id)])
-    setDashboardCharts(prev => [...prev, ...charts])
+
+    // 차트: 새 업로드의 차트로 교체 (핀된 차트는 유지)
+    setDashboardCharts(charts)
+
     if (newProfile) setProfile(newProfile)
-    if (newQuickActions) setQuickActions(newQuickActions)
+
+    // 퀵 액션: 병합 후 중복 제거 (최대 5개)
+    if (newQuickActions && newQuickActions.length > 0) {
+      setQuickActions(prev => {
+        const merged = [...newQuickActions, ...prev]
+        const seen = new Set<string>()
+        return merged.filter(a => {
+          if (seen.has(a.label)) return false
+          seen.add(a.label)
+          return true
+        }).slice(0, 5)
+      })
+    }
+
     if (newBriefing) {
       setBriefing(newBriefing)
       setIsChatOpen(true)
       if (newBriefing.greeting) {
-        setChatMessages([{
-          role: 'assistant',
-          content: newBriefing.greeting,
-          followUpQuestions: newBriefing.suggestedQuestions,
-        } as ChatMessage])
+        // 기존 채팅 기록 유지 + 새 인사 메시지 추가 (기록 삭제 방지)
+        setChatMessages(prev => {
+          const greetingMsg: ChatMessage = {
+            role: 'assistant',
+            content: newBriefing.greeting,
+            followUpQuestions: newBriefing.suggestedQuestions,
+          }
+          // 첫 업로드: 인사만
+          if (prev.length === 0) return [greetingMsg]
+          // 추가 업로드: 기존 대화 유지 + 새 파일 알림
+          return [...prev, greetingMsg]
+        })
       }
     }
   }, [])

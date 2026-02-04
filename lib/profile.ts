@@ -1,11 +1,16 @@
 import { executePython } from './executor'
 import type { DataProfile } from './types'
 
-function buildProfileScript(filePath: string): string {
+function buildProfileScript(filePath: string, headerRow: number = 0, dataEndRow: number = -1): string {
   return `
-import pandas as pd, numpy as np, json, sys
+import pandas as pd, numpy as np, json, sys, io
 
-df = pd.read_csv("${filePath}", comment='#', encoding_errors='replace')
+# 파일 라인 기준으로 데이터 범위만 추출 (멀티라인 셀, 다중 섹션 대응)
+with open("${filePath}", "r", encoding="utf-8", errors="replace") as f:
+    lines = f.readlines()
+end = ${dataEndRow} if ${dataEndRow} > 0 else len(lines)
+content = "".join(lines[${headerRow}:end])
+df = pd.read_csv(io.StringIO(content), header=0, thousands=',', na_values=['-', '$ -', '₩ -', 'N/A', '#N/A', '#REF!', '#VALUE!'])
 result = {"warnings": [], "correlations": [], "distributions": []}
 
 # 1. 데이터 품질 검사
@@ -77,8 +82,8 @@ print(json.dumps(result, ensure_ascii=False))
 `.trim()
 }
 
-export async function runSmartProfile(fileId: string, filePath: string): Promise<DataProfile> {
-  const code = buildProfileScript(filePath)
+export async function runSmartProfile(fileId: string, filePath: string, headerRow: number = 0, dataEndRow: number = -1): Promise<DataProfile> {
+  const code = buildProfileScript(filePath, headerRow, dataEndRow)
   const result = await executePython(code, process.cwd(), 30000)
 
   if (result.exitCode !== 0) {

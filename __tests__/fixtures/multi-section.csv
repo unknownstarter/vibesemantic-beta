@@ -1,0 +1,15 @@
+,,
+,"[테스트 데이터]",,
+,,
+name,age,city
+Alice,25,Seoul
+Bob,30,Busan
+Charlie,35,Daegu
+합계,90,
+,,
+,,2차 평가,,
+name,score,grade
+Diana,85,B
+Eve,92,A
+Frank,78,C
+전체 평균,85,

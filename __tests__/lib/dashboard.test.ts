@@ -11,48 +11,19 @@ function makeColumn(overrides: Partial<ColumnInfo> & { name: string; type: Colum
 }
 
 describe('buildAutoDashboard', () => {
-  it('should always include a summary chart', () => {
+  it('should return empty array when no numeric columns exist', () => {
     const charts = buildAutoDashboard({
       fileName: 'test.csv',
       rowCount: 100,
       columns: [
         makeColumn({ name: 'id', type: 'string' }),
       ],
+      sample: [{ id: 'a' }, { id: 'b' }],
     })
-    const summary = charts.find(c => c.type === 'summary')
-    expect(summary).toBeDefined()
-    expect(summary!.title).toContain('test.csv')
-    expect(summary!.data).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ label: '총 행 수', value: '100' }),
-      ])
-    )
+    expect(charts).toHaveLength(0)
   })
 
-  it('should create numeric overview for number columns with stats', () => {
-    const charts = buildAutoDashboard({
-      fileName: 'test.csv',
-      rowCount: 100,
-      columns: [
-        makeColumn({
-          name: 'age',
-          type: 'number',
-          stats: { min: 20, max: 60, mean: 35, median: 33, std: 10 },
-        }),
-        makeColumn({
-          name: 'score',
-          type: 'number',
-          stats: { min: 0, max: 100, mean: 75, median: 80, std: 15 },
-        }),
-      ],
-    })
-    const numericChart = charts.find(c => c.title === '수치형 컬럼 통계')
-    expect(numericChart).toBeDefined()
-    expect(numericChart!.type).toBe('bar')
-    expect(numericChart!.data).toHaveLength(2)
-  })
-
-  it('should create category chart for string columns with topValues', () => {
+  it('should create category×metric bar chart when category + numeric columns exist', () => {
     const charts = buildAutoDashboard({
       fileName: 'test.csv',
       rowCount: 100,
@@ -60,42 +31,69 @@ describe('buildAutoDashboard', () => {
         makeColumn({
           name: 'city',
           type: 'string',
-          uniqueCount: 5,
+          uniqueCount: 3,
           topValues: [
             { value: '서울', count: 40 },
             { value: '부산', count: 30 },
             { value: '대구', count: 15 },
-            { value: '인천', count: 10 },
-            { value: '광주', count: 5 },
           ],
         }),
+        makeColumn({
+          name: '세션수',
+          type: 'number',
+          stats: { min: 10, max: 100, mean: 50, median: 45, std: 20 },
+        }),
+      ],
+      sample: [
+        { city: '서울', '세션수': 100 },
+        { city: '부산', '세션수': 80 },
+        { city: '대구', '세션수': 50 },
       ],
     })
-    const catChart = charts.find(c => c.title === 'city 분포')
+    const catChart = charts.find(c => c.title === 'city별 세션수')
     expect(catChart).toBeDefined()
-    expect(catChart!.type).toBe('pie')
-    expect(catChart!.data).toHaveLength(5)
+    expect(catChart!.type).toBe('bar')
+    expect(catChart!.data.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('should use bar chart for categories with more than 6 unique values', () => {
+  it('should create secondary metric chart when multiple numeric columns exist with category', () => {
     const charts = buildAutoDashboard({
       fileName: 'test.csv',
       rowCount: 100,
       columns: [
         makeColumn({
-          name: 'product',
+          name: 'channel',
           type: 'string',
-          uniqueCount: 10,
-          topValues: Array.from({ length: 10 }, (_, i) => ({ value: `P${i}`, count: 10 - i })),
+          uniqueCount: 3,
+          topValues: [
+            { value: 'organic', count: 50 },
+            { value: 'paid', count: 30 },
+            { value: 'direct', count: 20 },
+          ],
+        }),
+        makeColumn({
+          name: '사용자수',
+          type: 'number',
+          stats: { min: 10, max: 200, mean: 80, median: 70, std: 40 },
+        }),
+        makeColumn({
+          name: '세션수',
+          type: 'number',
+          stats: { min: 20, max: 300, mean: 120, median: 100, std: 50 },
         }),
       ],
+      sample: [
+        { channel: 'organic', '사용자수': 200, '세션수': 300 },
+        { channel: 'paid', '사용자수': 100, '세션수': 150 },
+        { channel: 'direct', '사용자수': 50, '세션수': 80 },
+      ],
     })
-    const catChart = charts.find(c => c.title === 'product 분포')
-    expect(catChart).toBeDefined()
-    expect(catChart!.type).toBe('bar')
+    // Primary + secondary metric charts
+    expect(charts.length).toBeGreaterThanOrEqual(2)
+    expect(charts.some(c => c.title.includes('사용자수') || c.title.includes('세션수'))).toBe(true)
   })
 
-  it('should create comparison chart when 2+ numeric columns exist', () => {
+  it('should create scale-aware comparison chart for 2+ numeric columns in same group', () => {
     const charts = buildAutoDashboard({
       fileName: 'test.csv',
       rowCount: 50,
@@ -111,10 +109,15 @@ describe('buildAutoDashboard', () => {
           stats: { min: 40, max: 100, mean: 65, median: 63, std: 15 },
         }),
       ],
+      sample: [
+        { height: 170, weight: 65 },
+        { height: 180, weight: 75 },
+        { height: 160, weight: 55 },
+      ],
     })
     const compChart = charts.find(c => c.title === 'height vs weight')
     expect(compChart).toBeDefined()
-    expect(compChart!.data).toHaveLength(2)
+    expect(compChart!.data.length).toBeGreaterThanOrEqual(2)
   })
 
   it('should skip category charts for high-cardinality string columns', () => {
@@ -129,9 +132,45 @@ describe('buildAutoDashboard', () => {
           topValues: [{ value: 'a@b.com', count: 1 }],
         }),
       ],
+      sample: [{ email: 'a@b.com' }, { email: 'b@c.com' }],
     })
-    const catChart = charts.find(c => c.title === 'email 분포')
+    // email has uniqueCount=100 which exceeds the 50 threshold → no category charts
+    const catChart = charts.find(c => c.title.includes('email'))
     expect(catChart).toBeUndefined()
+  })
+
+  it('should assign _priority and _source to each chart', () => {
+    const charts = buildAutoDashboard({
+      fileName: 'myfile.csv',
+      rowCount: 50,
+      columns: [
+        makeColumn({
+          name: 'category',
+          type: 'string',
+          uniqueCount: 3,
+          topValues: [
+            { value: 'A', count: 20 },
+            { value: 'B', count: 15 },
+            { value: 'C', count: 10 },
+          ],
+        }),
+        makeColumn({
+          name: 'value',
+          type: 'number',
+          stats: { min: 0, max: 100, mean: 50, median: 45, std: 20 },
+        }),
+      ],
+      sample: [
+        { category: 'A', value: 80 },
+        { category: 'B', value: 60 },
+        { category: 'C', value: 40 },
+      ],
+    })
+    expect(charts.length).toBeGreaterThan(0)
+    for (const chart of charts) {
+      expect(chart._priority).toBeGreaterThan(0)
+      expect(chart._source).toBe('myfile.csv')
+    }
   })
 })
 

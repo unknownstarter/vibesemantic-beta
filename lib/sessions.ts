@@ -83,6 +83,16 @@ export class SessionStore {
     }
   }
 
+  listFiles(): Array<{ id: string; name: string; columns: string[]; sample: Record<string, unknown>[] }> {
+    const rows = this.db.prepare('SELECT id, name, columns_json, sample_json FROM files ORDER BY created_at ASC').all() as Record<string, string>[]
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      columns: JSON.parse(row.columns_json),
+      sample: JSON.parse(row.sample_json),
+    }))
+  }
+
   createSession(title: string, fileIds: string[]): Session {
     const id = uuid()
     const now = new Date().toISOString()

@@ -231,6 +231,7 @@ async function runFastPath(
       title: question,
       data: [],
       imageUrl: `/api/outputs/${f}`,
+      source: 'Chat Analysis',
     }))
 
   plan.steps[0].status = result.exitCode === 0 ? 'success' : 'failed'
@@ -349,6 +350,7 @@ export async function runAgentLoop(
           title: step.description,
           data: [],
           imageUrl: `/api/outputs/${f}`,
+          source: 'Chat Analysis',
         }))
       allCharts.push(...stepCharts)
 

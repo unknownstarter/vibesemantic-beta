@@ -38,6 +38,7 @@ export interface ChartData {
   yKey?: string
   imageUrl?: string
   insight?: string
+  source?: string  // 데이터 소스 이름 (대시보드 그룹핑용)
 }
 
 // 채팅
@@ -71,7 +72,7 @@ export interface ApiResponse<T = unknown> {
 export interface UploadResult {
   files: FileMetadata[]
   charts: ChartData[]
-  profile?: DataProfile
+  profiles: DataProfile[]
   quickActions?: QuickAction[]
   briefing?: DataBriefing
 }

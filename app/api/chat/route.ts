@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
         title: '분석 차트',
         data: [],
         imageUrl: `/api/outputs/${f}`,
+        source: 'Chat Analysis',
       }))
 
     // Interpret results
