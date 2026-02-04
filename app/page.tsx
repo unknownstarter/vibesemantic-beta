@@ -25,7 +25,7 @@ export default function Home() {
   const [isChatOpen, setIsChatOpen] = useState(true)
   const [profile, setProfile] = useState<DataProfile | null>(null)
   const [quickActions, setQuickActions] = useState<QuickAction[]>([])
-  const [briefing, setBriefing] = useState<DataBriefing | null>(null)
+  const [briefings, setBriefings] = useState<DataBriefing[]>([])
   const [showDataTable, setShowDataTable] = useState(false)
 
   const chatInputRef = useRef<string>('')
@@ -49,8 +49,13 @@ export default function Home() {
     setFiles(prev => [...prev, ...mapped])
     setSelectedFileIds(prev => [...prev, ...newFiles.map(f => f.id)])
 
-    // 차트: 새 업로드의 차트로 교체 (핀된 차트는 유지)
-    setDashboardCharts(charts)
+    // 차트: 같은 소스의 기존 차트만 교체, 다른 소스 차트는 유지
+    setDashboardCharts(prev => {
+      const newSources = new Set(charts.map(c => c.source).filter(Boolean))
+      // 새 업로드와 같은 소스를 가진 기존 차트 제거, 나머지 보존
+      const kept = prev.filter(c => !c.source || !newSources.has(c.source))
+      return [...kept, ...charts]
+    })
 
     if (newProfile) setProfile(newProfile)
 
@@ -68,19 +73,17 @@ export default function Home() {
     }
 
     if (newBriefing) {
-      setBriefing(newBriefing)
+      // 브리핑 누적: 기존 브리핑 유지 + 새 브리핑 추가
+      setBriefings(prev => [...prev, newBriefing])
       setIsChatOpen(true)
       if (newBriefing.greeting) {
-        // 기존 채팅 기록 유지 + 새 인사 메시지 추가 (기록 삭제 방지)
         setChatMessages(prev => {
           const greetingMsg: ChatMessage = {
             role: 'assistant',
             content: newBriefing.greeting,
             followUpQuestions: newBriefing.suggestedQuestions,
           }
-          // 첫 업로드: 인사만
           if (prev.length === 0) return [greetingMsg]
-          // 추가 업로드: 기존 대화 유지 + 새 파일 알림
           return [...prev, greetingMsg]
         })
       }
@@ -152,7 +155,7 @@ export default function Home() {
 
   // Confirm briefing and save context to server
   const handleConfirmBriefing = useCallback(async (confirmed: DataBriefing) => {
-    setBriefing(confirmed)
+    setBriefings(prev => prev.map(b => b.domain === confirmed.domain ? confirmed : b))
     const fileId = selectedFileIds[0]
     if (fileId) {
       try {
@@ -202,7 +205,7 @@ export default function Home() {
           pinnedCharts={pinnedCharts}
           onUnpinChart={handleUnpinChart}
           profile={profile}
-          briefing={briefing}
+          briefings={briefings}
           onConfirmBriefing={handleConfirmBriefing}
           onChartClick={handleChartClick}
         />

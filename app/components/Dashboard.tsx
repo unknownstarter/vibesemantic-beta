@@ -10,7 +10,7 @@ interface DashboardProps {
   pinnedCharts: ChartData[]
   onUnpinChart: (chartId: string) => void
   profile?: DataProfile | null
-  briefing?: DataBriefing | null
+  briefings?: DataBriefing[]
   onConfirmBriefing: (briefing: DataBriefing) => void
   onChartClick?: (event: { suggestedQuestion: string }) => void
 }
@@ -25,7 +25,7 @@ export default function Dashboard({
   pinnedCharts,
   onUnpinChart,
   profile,
-  briefing,
+  briefings = [],
   onConfirmBriefing,
   onChartClick,
 }: DashboardProps) {
@@ -68,7 +68,7 @@ export default function Dashboard({
     })
   }
 
-  const allEmpty = charts.length === 0 && pinnedCharts.length === 0 && !briefing
+  const allEmpty = charts.length === 0 && pinnedCharts.length === 0 && briefings.length === 0
 
   if (allEmpty) {
     return (
@@ -88,14 +88,17 @@ export default function Dashboard({
 
   return (
     <div>
-      {/* Data Briefing Card */}
-      {briefing && (
-        <div className="mb-4">
-          <DataBriefingCard
-            briefing={briefing}
-            profile={profile ?? null}
-            onConfirm={onConfirmBriefing}
-          />
+      {/* Data Briefing Cards — 새 브리핑이 위에 오도록 역순 표시 */}
+      {briefings.length > 0 && (
+        <div className="mb-4 space-y-3">
+          {[...briefings].reverse().map((b, i) => (
+            <DataBriefingCard
+              key={`briefing-${briefings.length - 1 - i}`}
+              briefing={b}
+              profile={i === 0 ? (profile ?? null) : null}
+              onConfirm={onConfirmBriefing}
+            />
+          ))}
         </div>
       )}
 
