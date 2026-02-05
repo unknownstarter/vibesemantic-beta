@@ -220,9 +220,21 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick 
         </div>
       </div>
       {chart.insight && (
-        <p className="px-4 pt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {chart.insight}
-        </p>
+        <div
+          className="mx-3 mt-2 flex items-start gap-1.5 rounded-lg px-3 py-2"
+          style={{ background: 'var(--bg-primary)' }}
+        >
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="var(--accent)" strokeWidth="2" className="mt-0.5 shrink-0"
+          >
+            <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z" />
+            <path d="M9 21h6M10 17v1M14 17v1" />
+          </svg>
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            {chart.insight}
+          </p>
+        </div>
       )}
       <div className="p-2">{renderChart()}</div>
       <ImageModal

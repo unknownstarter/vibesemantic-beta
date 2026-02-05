@@ -1,6 +1,8 @@
 import { v4 as uuid } from 'uuid'
-import type { ColumnInfo, ChartData, QuickAction } from './types'
+import type { ColumnInfo, ChartData, QuickAction, DataProfile, DataBriefing } from './types'
 import type { MetadataResult } from './metadata'
+import { callClaude, MODEL_INTERPRET } from './claude'
+import type { TextBlockParam } from '@anthropic-ai/sdk/resources/messages'
 
 interface DashboardInput {
   fileName: string
@@ -85,6 +87,203 @@ export function buildAutoDashboard(input: DashboardInput): ScoredChart[] {
   }
 
   return charts
+}
+
+// ========== LLM 기반 차트 추천 ==========
+
+interface LLMChartRecommendation {
+  type: 'bar' | 'line' | 'pie'
+  title: string
+  groupBy: string
+  metric: string
+  aggregation: 'sum' | 'avg' | 'count' | 'max' | 'min'
+  insight: string
+  priority: number
+}
+
+const CHART_RECOMMENDER_SYSTEM = `너는 데이터 시각화 전문가야. CSV 메타데이터를 보고 가장 인사이트가 풍부한 차트 조합을 추천해.
+
+규칙:
+1. 데이터의 비즈니스 맥락을 이해하고, 경영진이 즉시 의사결정에 활용할 수 있는 차트를 추천해.
+2. 단순 나열이 아니라, 서로 보완적인 시각(비교, 추이, 구성비)을 조합해.
+3. groupBy는 반드시 실제 존재하는 컬럼명, metric도 반드시 실제 존재하는 숫자 컬럼명이어야 해.
+4. aggregation은 metric 컬럼의 성격에 맞게 선택 (매출→sum, 비율→avg, 건수→sum 또는 count).
+5. insight는 이 차트에서 발견할 수 있을 인사이트를 1문장으로 예고.
+6. priority는 1(가장 중요)~10(덜 중요). 비즈니스 임팩트 기준.
+7. 최소 3개, 최대 6개 차트를 추천.
+8. 반드시 순수 JSON 배열만 응답. 마크다운 코드블록(백틱) 절대 사용 금지.
+
+응답 형식:
+[
+  {
+    "type": "bar",
+    "title": "채널별 매출액 비교",
+    "groupBy": "채널",
+    "metric": "매출액",
+    "aggregation": "sum",
+    "insight": "이메일이 가장 높은 ROAS를 보이며, 전체 매출의 40%를 차지",
+    "priority": 1
+  }
+]`
+
+function buildChartRecommenderPrompt(
+  input: DashboardInput,
+  profile: DataProfile | null,
+  briefing: DataBriefing | null,
+): string {
+  const parts: string[] = []
+
+  // 컬럼 정보 (타입 + 통계 요약)
+  const colSummary = input.columns.map(c => {
+    let desc = `${c.name} (${c.type})`
+    if (c.stats) desc += ` [min:${c.stats.min}, max:${c.stats.max}, mean:${Math.round(c.stats.mean)}]`
+    if (c.topValues && c.topValues.length > 0) {
+      desc += ` [고유값: ${c.topValues.slice(0, 5).map(v => v.value).join(', ')}${c.uniqueCount > 5 ? ` 외 ${c.uniqueCount - 5}개` : ''}]`
+    }
+    return desc
+  }).join('\n')
+
+  parts.push(`파일: ${input.fileName}`)
+  parts.push(`행 수: ${input.rowCount}`)
+  parts.push(`컬럼(${input.columns.length}개):\n${colSummary}`)
+
+  // 샘플 데이터 (5행)
+  parts.push(`샘플 데이터:\n${JSON.stringify(input.sample.slice(0, 5), null, 2)}`)
+
+  // 프로필 상관관계
+  if (profile?.correlations && profile.correlations.length > 0) {
+    parts.push(`상관관계: ${profile.correlations.map(c => `${c.col1}↔${c.col2}(${c.coefficient})`).join(', ')}`)
+  }
+
+  // 프로필 분포
+  if (profile?.distributions && profile.distributions.length > 0) {
+    parts.push(`주요 분포: ${profile.distributions.slice(0, 5).map(d => `${d.column}(평균 ${Math.round(d.mean)}, 편차 ${Math.round(d.std)})`).join(', ')}`)
+  }
+
+  // 브리핑 컨텍스트
+  if (briefing) {
+    if (briefing.domain) parts.push(`도메인: ${briefing.domain}`)
+    if (briefing.keyMetrics && briefing.keyMetrics.length > 0) {
+      parts.push(`핵심 지표: ${briefing.keyMetrics.join(', ')}`)
+    }
+    if (briefing.briefing) parts.push(`컨텍스트: ${briefing.briefing}`)
+  }
+
+  return parts.join('\n\n')
+}
+
+function aggregateData(
+  sample: Record<string, unknown>[],
+  groupBy: string,
+  metric: string,
+  aggregation: string,
+): Record<string, unknown>[] {
+  const groups = new Map<string, number[]>()
+
+  for (const row of sample) {
+    const key = String(row[groupBy] ?? '')
+    const val = Number(row[metric] ?? 0)
+    if (!key || isNaN(val)) continue
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(val)
+  }
+
+  const result: Record<string, unknown>[] = []
+  for (const [name, values] of groups) {
+    let value: number
+    switch (aggregation) {
+      case 'sum': value = values.reduce((a, b) => a + b, 0); break
+      case 'avg': value = values.reduce((a, b) => a + b, 0) / values.length; break
+      case 'count': value = values.length; break
+      case 'max': value = Math.max(...values); break
+      case 'min': value = Math.min(...values); break
+      default: value = values.reduce((a, b) => a + b, 0)
+    }
+    const label = name.length > 15 ? name.slice(0, 15) + '…' : name
+    result.push({ name: label, value: Math.round(value * 100) / 100 })
+  }
+
+  return result.sort((a, b) => (b.value as number) - (a.value as number)).slice(0, 12)
+}
+
+function parseLLMRecommendations(text: string): LLMChartRecommendation[] {
+  try {
+    // 마크다운 코드블록 제거
+    let cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim()
+    const arrMatch = cleaned.match(/\[[\s\S]*\]/)
+    if (!arrMatch) throw new Error('No JSON array found')
+    let jsonStr = arrMatch[0]
+    jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1')
+    const parsed = JSON.parse(jsonStr) as LLMChartRecommendation[]
+    return parsed.filter(r => r.type && r.title && r.groupBy && r.metric)
+  } catch (err) {
+    console.error('[LLM_CHART] JSON parse failed:', err)
+    return []
+  }
+}
+
+/** LLM 기반 스마트 차트 추천 — 폴백으로 규칙 기반 사용 */
+export async function buildLLMDashboard(
+  input: DashboardInput,
+  profile: DataProfile | null,
+  briefing: DataBriefing | null,
+): Promise<ScoredChart[]> {
+  try {
+    const prompt = buildChartRecommenderPrompt(input, profile, briefing)
+
+    const text = await callClaude({
+      model: MODEL_INTERPRET,
+      systemBlocks: [{ type: 'text', text: CHART_RECOMMENDER_SYSTEM } as TextBlockParam],
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 2048,
+      temperature: 0.3,
+    })
+
+    const recommendations = parseLLMRecommendations(text)
+    if (recommendations.length === 0) {
+      console.warn('[LLM_CHART] No valid recommendations, falling back to rules')
+      return buildAutoDashboard(input)
+    }
+
+    // 유효한 컬럼만 필터
+    const colNames = new Set(input.columns.map(c => c.name))
+    const validRecs = recommendations.filter(r => colNames.has(r.groupBy) && colNames.has(r.metric))
+
+    if (validRecs.length === 0) {
+      console.warn('[LLM_CHART] No valid column references, falling back to rules')
+      return buildAutoDashboard(input)
+    }
+
+    const charts: ScoredChart[] = []
+
+    for (const rec of validRecs) {
+      const data = aggregateData(input.sample, rec.groupBy, rec.metric, rec.aggregation)
+      if (data.length < 2) continue
+
+      charts.push({
+        id: uuid(),
+        type: rec.type === 'pie' ? 'pie' : rec.type,
+        title: rec.title,
+        data,
+        xKey: 'name',
+        yKey: 'value',
+        insight: rec.insight,
+        _priority: 100 - (rec.priority - 1) * 10, // priority 1→100, 2→90, ...
+        _source: input.fileName,
+      })
+    }
+
+    // LLM 차트가 2개 미만이면 규칙 기반으로 보충
+    if (charts.length < 2) {
+      const ruleCharts = buildAutoDashboard(input)
+      charts.push(...ruleCharts)
+    }
+
+    return charts
+  } catch (err) {
+    console.error('[LLM_CHART] Failed, falling back to rules:', err)
+    return buildAutoDashboard(input)
+  }
 }
 
 /** 전체 파일에서 생성된 차트를 큐레이션하여 최적 세트 반환 */

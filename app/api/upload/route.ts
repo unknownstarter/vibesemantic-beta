@@ -3,7 +3,7 @@ import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 import { v4 as uuid } from 'uuid'
 import { extractAllSections } from '@/lib/metadata'
-import { buildAutoDashboard, buildCrossSectionCharts, generateQuickActions, curateDashboard } from '@/lib/dashboard'
+import { buildAutoDashboard, buildLLMDashboard, buildCrossSectionCharts, generateQuickActions, curateDashboard } from '@/lib/dashboard'
 import { runSmartProfile } from '@/lib/profile'
 import { inferContext } from '@/lib/briefing'
 import { getSessionStore } from '@/lib/sessions'
@@ -28,6 +28,11 @@ export async function POST(request: NextRequest) {
     const profiles: DataProfile[] = []
     let briefing: DataBriefing | undefined
     let quickActions: QuickAction[] = []
+
+    // 섹션별 DashboardInput을 저장해뒀다가 briefing 후 LLM 차트에 활용
+    const dashboardInputs: Array<{ fileName: string; columns: import('@/lib/types').ColumnInfo[]; rowCount: number; sample: Record<string, unknown>[] }> = []
+    // 교차 섹션 차트용
+    const crossSectionData: Array<{ sections: Awaited<ReturnType<typeof extractAllSections>>; fileName: string }> = []
 
     for (const file of files) {
       if (!file.name.endsWith('.csv')) continue
@@ -67,14 +72,13 @@ export async function POST(request: NextRequest) {
           section.rowCount,
         )
 
-        // Rule-based auto dashboard per section
-        const dashboardCharts = buildAutoDashboard({
+        // DashboardInput 저장 (차트 생성은 briefing 후)
+        dashboardInputs.push({
           fileName: displayName,
           columns: section.columns,
           rowCount: section.rowCount,
           sample: section.sample,
         })
-        allCharts.push(...dashboardCharts)
 
         // Smart Profile per section — 각 섹션의 데이터 범위만 프로파일링
         const sectionProfile = await runSmartProfile(sectionId, filePath, section.headerRow, section.dataEndRow)
@@ -88,16 +92,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 교차 섹션 비교 차트 (멀티 섹션일 때만)
+      // 교차 섹션 데이터 저장
       if (sections.length > 1) {
-        const crossCharts = buildCrossSectionCharts(sections, file.name)
-        allCharts.push(...crossCharts)
+        crossSectionData.push({ sections, fileName: file.name })
       }
     }
 
     // Context Inference — 이전 업로드 파일 + 현재 업로드 파일 모두 포함
     if (results.length > 0) {
-      // 이전에 등록된 파일들도 briefing 컨텍스트에 포함 (추가 업로드 대응)
       const previousFiles = store.listFiles()
       const currentIds = new Set(results.map(f => f.id))
       const previousSummary = previousFiles
@@ -114,10 +116,22 @@ export async function POST(request: NextRequest) {
         sample: f.sample,
       }))
 
-      // 이전 파일 + 현재 파일 합쳐서 briefing 생성 (최대 10개 파일)
       const metaSummary = [...previousSummary, ...currentSummary].slice(0, 10)
       const validProfile = profiles.length > 0 ? profiles[0] : null
       briefing = await inferContext(metaSummary, validProfile)
+    }
+
+    // LLM 차트 생성 (briefing + profile 확보 후) — 각 섹션별
+    const validProfile = profiles.length > 0 ? profiles[0] : null
+    for (const input of dashboardInputs) {
+      const charts = await buildLLMDashboard(input, validProfile, briefing ?? null)
+      allCharts.push(...charts)
+    }
+
+    // 교차 섹션 비교 차트
+    for (const { sections, fileName } of crossSectionData) {
+      const crossCharts = buildCrossSectionCharts(sections, fileName)
+      allCharts.push(...crossCharts)
     }
 
     // 전체 차트에서 핵심 차트 큐레이션
