@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { FileMetadata, ChartData, ChatMessage, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
@@ -17,6 +17,7 @@ interface UploadedFile {
 }
 
 export default function Home() {
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const [files, setFiles] = useState<UploadedFile[]>([])
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([])
   const [dashboardCharts, setDashboardCharts] = useState<ChartData[]>([])
@@ -27,18 +28,104 @@ export default function Home() {
   const [quickActions, setQuickActions] = useState<QuickAction[]>([])
   const [briefings, setBriefings] = useState<DataBriefing[]>([])
   const [showDataTable, setShowDataTable] = useState(false)
+  const [, setIsRestoring] = useState(true)
 
   const chatInputRef = useRef<string>('')
 
   const agent = useAgentStream()
 
+  // 페이지 로드 시 마지막 세션 복원
+  useEffect(() => {
+    async function restoreLastSession() {
+      try {
+        const res = await fetch('/api/sessions')
+        if (!res.ok) return
+        const { data: sessions } = await res.json()
+        if (!sessions || sessions.length === 0) return
+
+        const lastSession = sessions[0] // 최신순 정렬
+        const detailRes = await fetch(`/api/sessions/${lastSession.id}`)
+        if (!detailRes.ok) return
+        const { data } = await detailRes.json()
+
+        setSessionId(data.id)
+
+        // 파일 복원
+        if (data.files && data.files.length > 0) {
+          const restored: UploadedFile[] = data.files.map((f: { id: string; name: string; columns: string[]; sample: Record<string, unknown>[]; rowCount?: number }) => ({
+            id: f.id,
+            name: f.name,
+            columns: f.columns,
+            rowCount: f.rowCount || 0,
+            sample: f.sample || [],
+          }))
+          setFiles(restored)
+          setSelectedFileIds(restored.map(f => f.id))
+        }
+
+        // 차트 복원
+        if (data.chartsJson && data.chartsJson.length > 0) {
+          setDashboardCharts(data.chartsJson)
+        }
+
+        // 핀 차트 복원
+        if (data.pinnedChartsJson && data.pinnedChartsJson.length > 0) {
+          setPinnedCharts(data.pinnedChartsJson)
+        }
+
+        // 브리핑 복원
+        if (data.briefingsJson && data.briefingsJson.length > 0) {
+          setBriefings(data.briefingsJson)
+        }
+
+        // 프로필 복원
+        if (data.profileJson) {
+          setProfile(data.profileJson)
+        }
+
+        // 퀵 액션 복원
+        if (data.quickActionsJson && data.quickActionsJson.length > 0) {
+          setQuickActions(data.quickActionsJson)
+        }
+
+        // 채팅 메시지 복원
+        if (data.messages && data.messages.length > 0) {
+          const restored: ChatMessage[] = data.messages.map((m: { role: 'user' | 'assistant'; content: string; charts_json?: string; code?: string }) => ({
+            role: m.role,
+            content: m.content,
+            charts: m.charts_json ? JSON.parse(m.charts_json) : undefined,
+            code: m.code || undefined,
+          }))
+          setChatMessages(restored)
+        } else if (data.briefingsJson && data.briefingsJson.length > 0) {
+          // 메시지가 없지만 briefing greeting이 있으면 복원
+          const greetings: ChatMessage[] = data.briefingsJson
+            .filter((b: DataBriefing) => b.greeting)
+            .map((b: DataBriefing) => ({
+              role: 'assistant' as const,
+              content: b.greeting,
+              followUpQuestions: b.suggestedQuestions,
+            }))
+          if (greetings.length > 0) setChatMessages(greetings)
+        }
+      } catch (err) {
+        console.error('[SESSION_RESTORE]', err)
+      } finally {
+        setIsRestoring(false)
+      }
+    }
+    restoreLastSession()
+  }, [])
+
   const handleFilesUploaded = useCallback((
+    newSessionId: string,
     newFiles: FileMetadata[],
     charts: ChartData[],
     newProfile?: DataProfile,
     newQuickActions?: QuickAction[],
     newBriefing?: DataBriefing,
   ) => {
+    setSessionId(newSessionId)
     const mapped: UploadedFile[] = newFiles.map(f => ({
       id: f.id,
       name: f.name,
@@ -93,13 +180,31 @@ export default function Home() {
   const handlePinChart = useCallback((chart: ChartData) => {
     setPinnedCharts(prev => {
       if (prev.some(c => c.id === chart.id)) return prev
-      return [...prev, chart]
+      const updated = [...prev, chart]
+      if (sessionId) {
+        fetch(`/api/sessions/${sessionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinnedCharts: updated }),
+        }).catch(err => console.error('[PIN_SAVE]', err))
+      }
+      return updated
     })
-  }, [])
+  }, [sessionId])
 
   const handleUnpinChart = useCallback((chartId: string) => {
-    setPinnedCharts(prev => prev.filter(c => c.id !== chartId))
-  }, [])
+    setPinnedCharts(prev => {
+      const updated = prev.filter(c => c.id !== chartId)
+      if (sessionId) {
+        fetch(`/api/sessions/${sessionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinnedCharts: updated }),
+        }).catch(err => console.error('[UNPIN_SAVE]', err))
+      }
+      return updated
+    })
+  }, [sessionId])
 
   const handleToggleFile = useCallback((fileId: string) => {
     setSelectedFileIds(prev =>
@@ -136,22 +241,22 @@ export default function Home() {
     agent.startAnalysis(
       prompt,
       selectedFileIds,
-      undefined,
+      sessionId ?? undefined,
       chatMessages.map(m => ({ role: m.role, content: m.content })),
       handleAnalysisComplete,
     )
-  }, [agent, selectedFileIds, chatMessages, handleAnalysisComplete])
+  }, [agent, selectedFileIds, sessionId, chatMessages, handleAnalysisComplete])
 
   // Start agent analysis
   const handleStartAnalysis = useCallback((question: string) => {
     agent.startAnalysis(
       question,
       selectedFileIds,
-      undefined,
+      sessionId ?? undefined,
       chatMessages.map(m => ({ role: m.role, content: m.content })),
       handleAnalysisComplete,
     )
-  }, [agent, selectedFileIds, chatMessages, handleAnalysisComplete])
+  }, [agent, selectedFileIds, sessionId, chatMessages, handleAnalysisComplete])
 
   // Confirm briefing and save context to server
   const handleConfirmBriefing = useCallback(async (confirmed: DataBriefing) => {
@@ -185,6 +290,7 @@ export default function Home() {
       <Sidebar
         files={files}
         selectedFileIds={selectedFileIds}
+        sessionId={sessionId}
         onToggleFile={handleToggleFile}
         onFilesUploaded={handleFilesUploaded}
         quickActions={quickActions}
@@ -215,6 +321,7 @@ export default function Home() {
       {isChatOpen && (
         <ResearchPanel
           selectedFileIds={selectedFileIds}
+          sessionId={sessionId}
           messages={chatMessages}
           onMessagesChange={setChatMessages}
           onPinChart={handlePinChart}

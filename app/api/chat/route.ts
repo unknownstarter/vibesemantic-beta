@@ -9,10 +9,11 @@ import type { ChatResponse, ChartData } from '@/lib/types'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { message, fileIds, history } = body as {
+    const { message, fileIds, history, sessionId } = body as {
       message: string
       fileIds: string[]
       history: Array<{ role: 'user' | 'assistant'; content: string }>
+      sessionId?: string
     }
 
     if (!message?.trim()) {
@@ -105,6 +106,18 @@ export async function POST(request: NextRequest) {
       code,
       charts: charts.length > 0 ? charts : undefined,
       pinnable: charts.length > 0,
+    }
+
+    // 메시지 영속화
+    if (sessionId) {
+      store.addMessage(sessionId, 'user', message)
+      store.addMessage(
+        sessionId,
+        'assistant',
+        reply,
+        charts.length > 0 ? JSON.stringify(charts) : undefined,
+        code,
+      )
     }
 
     return NextResponse.json({ data: response })

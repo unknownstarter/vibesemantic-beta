@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const files = formData.getAll('files') as File[]
+    const existingSessionId = formData.get('sessionId') as string | null
 
     if (files.length === 0) {
       return NextResponse.json({ error: '파일을 선택해주세요' }, { status: 400 })
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
           filePath,
           section.columns.map(c => c.name),
           section.sample.slice(0, 3),
+          section.rowCount,
         )
 
         // Rule-based auto dashboard per section
@@ -121,8 +123,52 @@ export async function POST(request: NextRequest) {
     // 전체 차트에서 핵심 차트 큐레이션
     const curatedCharts = curateDashboard(allCharts, 6)
 
+    // 세션 생성 또는 업데이트
+    let sessionId: string
+    const fileIds = results.map(f => f.id)
+    const sessionTitle = results.map(f => f.name).join(', ')
+
+    if (existingSessionId) {
+      // 추가 업로드: 기존 세션 업데이트
+      const existing = store.getSession(existingSessionId)
+      if (existing) {
+        const mergedFileIds = [...existing.fileIds, ...fileIds]
+        const mergedCharts = [...(existing.chartsJson ?? []), ...curatedCharts]
+        const mergedBriefings = briefing
+          ? [briefing, ...(existing.briefingsJson ?? [])]
+          : (existing.briefingsJson ?? [])
+        store.updateSession(existingSessionId, {
+          fileIds: mergedFileIds,
+          charts: mergedCharts,
+          briefings: mergedBriefings,
+          profile: profiles[0] ?? existing.profileJson,
+          quickActions,
+        })
+        sessionId = existingSessionId
+      } else {
+        // 세션이 사라진 경우 새로 생성
+        const session = store.createSession(sessionTitle, fileIds, {
+          charts: curatedCharts,
+          briefings: briefing ? [briefing] : [],
+          profile: profiles[0] ?? null,
+          quickActions,
+        })
+        sessionId = session.id
+      }
+    } else {
+      // 첫 업로드: 새 세션 생성
+      const session = store.createSession(sessionTitle, fileIds, {
+        charts: curatedCharts,
+        briefings: briefing ? [briefing] : [],
+        profile: profiles[0] ?? null,
+        quickActions,
+      })
+      sessionId = session.id
+    }
+
     return NextResponse.json({
       data: {
+        sessionId,
         files: results,
         charts: curatedCharts,
         profiles,

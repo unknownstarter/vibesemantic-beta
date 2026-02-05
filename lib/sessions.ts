@@ -23,6 +23,11 @@ export class SessionStore {
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         file_ids TEXT NOT NULL DEFAULT '[]',
+        charts_json TEXT NOT NULL DEFAULT '[]',
+        pinned_charts_json TEXT NOT NULL DEFAULT '[]',
+        briefings_json TEXT NOT NULL DEFAULT '[]',
+        profile_json TEXT DEFAULT NULL,
+        quick_actions_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -43,6 +48,7 @@ export class SessionStore {
         path TEXT NOT NULL,
         columns_json TEXT NOT NULL,
         sample_json TEXT NOT NULL,
+        row_count INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS analysis_cache (
@@ -64,15 +70,37 @@ export class SessionStore {
       );
     `
     this.db.exec(setup)
+
+    // 기존 DB에 새 컬럼이 없을 수 있으므로 ALTER TABLE로 마이그레이션
+    const alterColumns = [
+      { name: 'charts_json', def: "TEXT NOT NULL DEFAULT '[]'" },
+      { name: 'pinned_charts_json', def: "TEXT NOT NULL DEFAULT '[]'" },
+      { name: 'briefings_json', def: "TEXT NOT NULL DEFAULT '[]'" },
+      { name: 'profile_json', def: 'TEXT DEFAULT NULL' },
+      { name: 'quick_actions_json', def: "TEXT NOT NULL DEFAULT '[]'" },
+    ]
+    // files 테이블 마이그레이션
+    try {
+      this.db.exec("ALTER TABLE files ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0")
+    } catch {
+      // 이미 존재
+    }
+    for (const col of alterColumns) {
+      try {
+        this.db.exec(`ALTER TABLE sessions ADD COLUMN ${col.name} ${col.def}`)
+      } catch {
+        // 이미 컬럼이 존재하면 무시
+      }
+    }
   }
 
-  registerFile(id: string, name: string, filePath: string, columns: string[], sample: Record<string, unknown>[]): void {
+  registerFile(id: string, name: string, filePath: string, columns: string[], sample: Record<string, unknown>[], rowCount: number = 0): void {
     this.db.prepare(
-      'INSERT OR REPLACE INTO files (id, name, path, columns_json, sample_json, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, name, filePath, JSON.stringify(columns), JSON.stringify(sample), new Date().toISOString())
+      'INSERT OR REPLACE INTO files (id, name, path, columns_json, sample_json, row_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, name, filePath, JSON.stringify(columns), JSON.stringify(sample), rowCount, new Date().toISOString())
   }
 
-  getFile(id: string): { name: string; path: string; columns: string[]; sample: Record<string, unknown>[] } | null {
+  getFile(id: string): { name: string; path: string; columns: string[]; sample: Record<string, unknown>[]; rowCount: number } | null {
     const row = this.db.prepare('SELECT * FROM files WHERE id = ?').get(id) as Record<string, string> | undefined
     if (!row) return null
     return {
@@ -80,50 +108,103 @@ export class SessionStore {
       path: row.path,
       columns: JSON.parse(row.columns_json),
       sample: JSON.parse(row.sample_json),
+      rowCount: Number(row.row_count) || 0,
     }
   }
 
-  listFiles(): Array<{ id: string; name: string; columns: string[]; sample: Record<string, unknown>[] }> {
-    const rows = this.db.prepare('SELECT id, name, columns_json, sample_json FROM files ORDER BY created_at ASC').all() as Record<string, string>[]
+  listFiles(): Array<{ id: string; name: string; columns: string[]; sample: Record<string, unknown>[]; rowCount: number }> {
+    const rows = this.db.prepare('SELECT id, name, columns_json, sample_json, row_count FROM files ORDER BY created_at ASC').all() as Record<string, string>[]
     return rows.map(row => ({
       id: row.id,
       name: row.name,
       columns: JSON.parse(row.columns_json),
       sample: JSON.parse(row.sample_json),
+      rowCount: Number(row.row_count) || 0,
     }))
   }
 
-  createSession(title: string, fileIds: string[]): Session {
+  createSession(title: string, fileIds: string[], extra?: {
+    charts?: unknown[]
+    pinnedCharts?: unknown[]
+    briefings?: unknown[]
+    profile?: unknown | null
+    quickActions?: unknown[]
+  }): Session {
     const id = uuid()
     const now = new Date().toISOString()
     this.db.prepare(
-      'INSERT INTO sessions (id, title, file_ids, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, title, JSON.stringify(fileIds), now, now)
+      `INSERT INTO sessions (id, title, file_ids, charts_json, pinned_charts_json, briefings_json, profile_json, quick_actions_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id, title, JSON.stringify(fileIds),
+      JSON.stringify(extra?.charts ?? []),
+      JSON.stringify(extra?.pinnedCharts ?? []),
+      JSON.stringify(extra?.briefings ?? []),
+      extra?.profile ? JSON.stringify(extra.profile) : null,
+      JSON.stringify(extra?.quickActions ?? []),
+      now, now
+    )
 
-    return { id, title, fileIds, createdAt: now, updatedAt: now }
+    return {
+      id, title, fileIds,
+      chartsJson: (extra?.charts ?? []) as Session['chartsJson'],
+      pinnedChartsJson: (extra?.pinnedCharts ?? []) as Session['pinnedChartsJson'],
+      briefingsJson: (extra?.briefings ?? []) as Session['briefingsJson'],
+      profileJson: (extra?.profile as Session['profileJson']) ?? null,
+      quickActionsJson: (extra?.quickActions ?? []) as Session['quickActionsJson'],
+      createdAt: now, updatedAt: now,
+    }
   }
 
-  getSession(id: string): Session | null {
-    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as Record<string, string> | undefined
-    if (!row) return null
+  updateSession(id: string, updates: {
+    title?: string
+    fileIds?: string[]
+    charts?: unknown[]
+    pinnedCharts?: unknown[]
+    briefings?: unknown[]
+    profile?: unknown | null
+    quickActions?: unknown[]
+  }): void {
+    const now = new Date().toISOString()
+    const setClauses: string[] = ['updated_at = ?']
+    const values: unknown[] = [now]
+
+    if (updates.title !== undefined) { setClauses.push('title = ?'); values.push(updates.title) }
+    if (updates.fileIds !== undefined) { setClauses.push('file_ids = ?'); values.push(JSON.stringify(updates.fileIds)) }
+    if (updates.charts !== undefined) { setClauses.push('charts_json = ?'); values.push(JSON.stringify(updates.charts)) }
+    if (updates.pinnedCharts !== undefined) { setClauses.push('pinned_charts_json = ?'); values.push(JSON.stringify(updates.pinnedCharts)) }
+    if (updates.briefings !== undefined) { setClauses.push('briefings_json = ?'); values.push(JSON.stringify(updates.briefings)) }
+    if (updates.profile !== undefined) { setClauses.push('profile_json = ?'); values.push(updates.profile ? JSON.stringify(updates.profile) : null) }
+    if (updates.quickActions !== undefined) { setClauses.push('quick_actions_json = ?'); values.push(JSON.stringify(updates.quickActions)) }
+
+    values.push(id)
+    this.db.prepare(`UPDATE sessions SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
+  }
+
+  private parseSessionRow(row: Record<string, string>): Session {
     return {
       id: row.id,
       title: row.title,
       fileIds: JSON.parse(row.file_ids),
+      chartsJson: JSON.parse(row.charts_json || '[]'),
+      pinnedChartsJson: JSON.parse(row.pinned_charts_json || '[]'),
+      briefingsJson: JSON.parse(row.briefings_json || '[]'),
+      profileJson: row.profile_json ? JSON.parse(row.profile_json) : null,
+      quickActionsJson: JSON.parse(row.quick_actions_json || '[]'),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
   }
 
+  getSession(id: string): Session | null {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as Record<string, string> | undefined
+    if (!row) return null
+    return this.parseSessionRow(row)
+  }
+
   listSessions(): Session[] {
     const rows = this.db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC').all() as Record<string, string>[]
-    return rows.map(row => ({
-      id: row.id,
-      title: row.title,
-      fileIds: JSON.parse(row.file_ids),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }))
+    return rows.map(row => this.parseSessionRow(row))
   }
 
   addMessage(

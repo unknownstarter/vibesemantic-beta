@@ -58,6 +58,11 @@ export interface Session {
   id: string
   title: string
   fileIds: string[]
+  chartsJson?: ChartData[]
+  pinnedChartsJson?: ChartData[]
+  briefingsJson?: DataBriefing[]
+  profileJson?: DataProfile | null
+  quickActionsJson?: QuickAction[]
   createdAt: string
   updatedAt: string
 }

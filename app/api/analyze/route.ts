@@ -58,14 +58,19 @@ export async function POST(request: NextRequest): Promise<Response> {
           .filter(Boolean)
           .join('\n')
 
-        // Load caches and context
+        // 메시지 영속화 — 사용자 질문 저장
         const sid = sessionId ?? 'default'
+        if (sessionId) {
+          store.addMessage(sessionId, 'user', question)
+        }
+
+        // Load caches and context
         const caches = store.listCache(sid)
         const context = fileIds
           .map(id => store.getContext(id))
           .find(c => c !== null) ?? null
 
-        await runAgentLoop(
+        const agentResult = await runAgentLoop(
           question,
           metadata,
           caches,
@@ -77,6 +82,16 @@ export async function POST(request: NextRequest): Promise<Response> {
           store,
           send,
         )
+
+        // 메시지 영속화 — AI 응답 저장
+        if (sessionId && agentResult) {
+          store.addMessage(
+            sessionId,
+            'assistant',
+            agentResult.insight,
+            agentResult.charts.length > 0 ? JSON.stringify(agentResult.charts) : undefined,
+          )
+        }
       } catch (err) {
         send({ type: 'error', data: { message: String(err) } })
       }

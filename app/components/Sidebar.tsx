@@ -15,8 +15,10 @@ interface UploadedFile {
 interface SidebarProps {
   files: UploadedFile[]
   selectedFileIds: string[]
+  sessionId: string | null
   onToggleFile: (fileId: string) => void
   onFilesUploaded: (
+    sessionId: string,
     files: FileMetadata[],
     charts: ChartData[],
     profile?: DataProfile,
@@ -32,6 +34,7 @@ interface SidebarProps {
 export default function Sidebar({
   files,
   selectedFileIds,
+  sessionId,
   onToggleFile,
   onFilesUploaded,
   quickActions,
@@ -51,6 +54,9 @@ export default function Sidebar({
         Array.from(fileList).forEach((file) => {
           formData.append('files', file)
         })
+        if (sessionId) {
+          formData.append('sessionId', sessionId)
+        }
 
         const res = await fetch('/api/upload', {
           method: 'POST',
@@ -66,6 +72,7 @@ export default function Sidebar({
           ? payload.profiles[0]
           : payload.profile
         onFilesUploaded(
+          payload.sessionId,
           payload.files,
           payload.charts || [],
           firstProfile,
@@ -78,7 +85,7 @@ export default function Sidebar({
         setIsUploading(false)
       }
     },
-    [onFilesUploaded]
+    [onFilesUploaded, sessionId]
   )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

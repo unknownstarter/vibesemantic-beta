@@ -10,6 +10,7 @@ import ExportButton from './ExportButton'
 
 interface ResearchPanelProps {
   selectedFileIds: string[]
+  sessionId?: string | null
   messages: ChatMessage[]
   onMessagesChange: (messages: ChatMessage[]) => void
   onPinChart: (chart: ChartData) => void
@@ -25,6 +26,7 @@ interface ResearchPanelProps {
 
 export default function ResearchPanel({
   selectedFileIds,
+  sessionId,
   messages,
   onMessagesChange,
   onPinChart,
@@ -65,6 +67,7 @@ export default function ResearchPanel({
           message: trimmed,
           fileIds: selectedFileIds,
           history: messages.map(m => ({ role: m.role, content: m.content })),
+          sessionId: sessionId ?? undefined,
         }),
       })
 
