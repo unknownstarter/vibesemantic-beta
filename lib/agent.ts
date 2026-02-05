@@ -14,6 +14,57 @@ function withCacheControl(text: string): TextBlockParam {
   return { type: 'text', text, cache_control: { type: 'ephemeral' } } as TextBlockParam
 }
 
+// Parse RECHARTS_JSON: lines from Python stdout
+export function parseRechartsCharts(stdout: string): ChartData[] {
+  const charts: ChartData[] = []
+  const lines = stdout.split('\n')
+  for (const line of lines) {
+    const idx = line.indexOf('RECHARTS_JSON:')
+    if (idx === -1) continue
+    try {
+      const json = JSON.parse(line.slice(idx + 'RECHARTS_JSON:'.length))
+      const type = ['bar', 'line', 'pie', 'summary'].includes(json.type) ? json.type : 'bar'
+      if (Array.isArray(json.data) && json.data.length > 0) {
+        charts.push({
+          id: uuid(),
+          type: type as ChartData['type'],
+          title: json.title || 'Chart',
+          data: json.data,
+          xKey: json.xKey,
+          yKey: json.yKey,
+          insight: json.insight || undefined,
+          source: 'Chat Analysis',
+        })
+      }
+    } catch { /* skip malformed JSON */ }
+  }
+  return charts
+}
+
+// Build ChartData from both Recharts JSON and generated image files
+function buildChartsFromResult(
+  stdout: string,
+  generatedFiles: string[],
+  title: string,
+): ChartData[] {
+  // 1. Recharts JSON charts (priority)
+  const rechartsCharts = parseRechartsCharts(stdout)
+
+  // 2. Image-based charts (fallback for complex visualizations)
+  const imageCharts: ChartData[] = generatedFiles
+    .filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
+    .map(f => ({
+      id: uuid(),
+      type: 'bar' as const,
+      title,
+      data: [],
+      imageUrl: `/api/outputs/${f}`,
+      source: 'Chat Analysis',
+    }))
+
+  return [...rechartsCharts, ...imageCharts]
+}
+
 // ========== 1. Plan ==========
 
 async function planAnalysis(
@@ -60,7 +111,7 @@ async function executeStep(
 
   const system = buildStepCoderSystem(dataContext, cacheContext || undefined, learnedContextStr || undefined)
 
-  const prompt = `${step.description}\n\n파일 경로:\n${filePathContext}\n\n차트 생성 시 저장 경로: ${outputsDir}/${uuid()}.png`
+  const prompt = `${step.description}\n\n파일 경로:\n${filePathContext}\n\n시각화 시 RECHARTS_JSON으로 출력해. 복잡한 시각화(히트맵, 산점도 등)만 matplotlib 사용 — 저장 경로: ${outputsDir}/${uuid()}.png`
 
   const text = await callClaude({
     model: MODEL_CODE_GEN,
@@ -198,7 +249,7 @@ async function runFastPath(
   ).join('\n\n')
 
   const system = buildStepCoderSystem(dataContext)
-  const prompt = `${question}\n\n파일 경로:\n${filePathContext}\n\n차트 생성 시 저장 경로: ${outputsDir}/${uuid()}.png`
+  const prompt = `${question}\n\n파일 경로:\n${filePathContext}\n\n시각화 시 RECHARTS_JSON으로 출력해. 복잡한 시각화(히트맵, 산점도 등)만 matplotlib 사용 — 저장 경로: ${outputsDir}/${uuid()}.png`
 
   const text = await callClaude({
     model: MODEL_INTERPRET, // Haiku for fast path
@@ -223,16 +274,7 @@ async function runFastPath(
   // Execute with short timeout (5s)
   const result = await executePython(code, process.cwd(), 5000)
 
-  const charts: ChartData[] = result.generatedFiles
-    .filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
-    .map(f => ({
-      id: uuid(),
-      type: 'bar' as const,
-      title: question,
-      data: [],
-      imageUrl: `/api/outputs/${f}`,
-      source: 'Chat Analysis',
-    }))
+  const charts = buildChartsFromResult(result.stdout, result.generatedFiles, question)
 
   plan.steps[0].status = result.exitCode === 0 ? 'success' : 'failed'
   plan.steps[0].code = code
@@ -253,9 +295,10 @@ async function runFastPath(
     },
   })
 
-  // Use stdout directly as insight (skip synthesize LLM call)
+  // Use stdout directly as insight (skip synthesize LLM call), strip RECHARTS_JSON lines
+  const cleanStdout = result.stdout.split('\n').filter(l => !l.includes('RECHARTS_JSON:')).join('\n').trim()
   const insight = result.exitCode === 0
-    ? result.stdout.slice(0, 3000) || '분석이 완료되었습니다.'
+    ? cleanStdout.slice(0, 3000) || '분석이 완료되었습니다.'
     : `실행 실패: ${result.stderr.slice(0, 500)}`
 
   onEvent({ type: 'synthesis', data: { insight, citations: [] } })
@@ -341,17 +384,8 @@ export async function runAgentLoop(
       const newCaches = await cacheResults(sessionId, result.stdout, store)
       step.result.cachedFiles = newCaches.map(c => c.filePath)
 
-      // Build charts from generated images
-      const stepCharts: ChartData[] = result.generatedFiles
-        .filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
-        .map(f => ({
-          id: uuid(),
-          type: 'bar' as const,
-          title: step.description,
-          data: [],
-          imageUrl: `/api/outputs/${f}`,
-          source: 'Chat Analysis',
-        }))
+      // Build charts from Recharts JSON + image fallback
+      const stepCharts = buildChartsFromResult(result.stdout, result.generatedFiles, step.description)
       allCharts.push(...stepCharts)
 
       step.status = result.exitCode === 0 ? 'success' : 'failed'
@@ -365,7 +399,9 @@ export async function runAgentLoop(
         },
       })
 
-      stepResults.push({ description: step.description, stdout: result.stdout })
+      // Strip RECHARTS_JSON lines before passing to synthesizer
+      const cleanStdout = result.stdout.split('\n').filter(l => !l.includes('RECHARTS_JSON:')).join('\n').trim()
+      stepResults.push({ description: step.description, stdout: cleanStdout })
     } catch (err) {
       step.status = 'failed'
       step.result = {

@@ -50,8 +50,60 @@ vi.mock('@/lib/executor', () => ({
 }))
 
 // Import after mocks
-import { runAgentLoop } from '@/lib/agent'
+import { runAgentLoop, parseRechartsCharts } from '@/lib/agent'
 import { SessionStore } from '@/lib/sessions'
+
+describe('parseRechartsCharts', () => {
+  it('should parse single RECHARTS_JSON line', () => {
+    const stdout = `결과: 총 100건
+RECHARTS_JSON:{"type":"bar","title":"매출 분포","data":[{"name":"A","value":10},{"name":"B","value":20}],"xKey":"name","yKey":"value"}
+분석 완료`
+    const charts = parseRechartsCharts(stdout)
+    expect(charts).toHaveLength(1)
+    expect(charts[0].type).toBe('bar')
+    expect(charts[0].title).toBe('매출 분포')
+    expect(charts[0].data).toHaveLength(2)
+    expect(charts[0].xKey).toBe('name')
+    expect(charts[0].yKey).toBe('value')
+    expect(charts[0].source).toBe('Chat Analysis')
+  })
+
+  it('should parse multiple RECHARTS_JSON lines', () => {
+    const stdout = `RECHARTS_JSON:{"type":"bar","title":"차트1","data":[{"x":"A","y":1}],"xKey":"x","yKey":"y"}
+RECHARTS_JSON:{"type":"pie","title":"차트2","data":[{"name":"X","value":50}],"xKey":"name","yKey":"value"}`
+    const charts = parseRechartsCharts(stdout)
+    expect(charts).toHaveLength(2)
+    expect(charts[0].type).toBe('bar')
+    expect(charts[1].type).toBe('pie')
+  })
+
+  it('should skip malformed JSON', () => {
+    const stdout = `RECHARTS_JSON:{invalid json}
+RECHARTS_JSON:{"type":"bar","title":"OK","data":[{"a":1}],"xKey":"a","yKey":"a"}`
+    const charts = parseRechartsCharts(stdout)
+    expect(charts).toHaveLength(1)
+    expect(charts[0].title).toBe('OK')
+  })
+
+  it('should skip charts with empty data', () => {
+    const stdout = `RECHARTS_JSON:{"type":"bar","title":"Empty","data":[],"xKey":"x","yKey":"y"}`
+    const charts = parseRechartsCharts(stdout)
+    expect(charts).toHaveLength(0)
+  })
+
+  it('should default invalid type to bar', () => {
+    const stdout = `RECHARTS_JSON:{"type":"scatter","title":"Test","data":[{"x":1}],"xKey":"x","yKey":"x"}`
+    const charts = parseRechartsCharts(stdout)
+    expect(charts).toHaveLength(1)
+    expect(charts[0].type).toBe('bar')
+  })
+
+  it('should return empty array when no RECHARTS_JSON in stdout', () => {
+    const stdout = '결과: 매출 100억원\n행 1-50 기준'
+    const charts = parseRechartsCharts(stdout)
+    expect(charts).toHaveLength(0)
+  })
+})
 
 describe('runAgentLoop', () => {
   let store: SessionStore

@@ -71,6 +71,17 @@ export class SessionStore {
     `
     this.db.exec(setup)
 
+    // 대화 요약 캐시 테이블
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS history_summaries (
+        session_id TEXT PRIMARY KEY,
+        summary TEXT NOT NULL,
+        covered_count INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id)
+      )
+    `)
+
     // 기존 DB에 새 컬럼이 없을 수 있으므로 ALTER TABLE로 마이그레이션
     const alterColumns = [
       { name: 'charts_json', def: "TEXT NOT NULL DEFAULT '[]'" },
@@ -303,6 +314,23 @@ export class SessionStore {
       JSON.stringify(context.previousInsights),
       context.updatedAt
     )
+  }
+
+  // ========== History Summary ==========
+
+  getSummary(sessionId: string): { summary: string; coveredCount: number } | null {
+    const row = this.db.prepare(
+      'SELECT summary, covered_count FROM history_summaries WHERE session_id = ?'
+    ).get(sessionId) as { summary: string; covered_count: number } | undefined
+    if (!row) return null
+    return { summary: row.summary, coveredCount: row.covered_count }
+  }
+
+  saveSummary(sessionId: string, summary: string, coveredCount: number): void {
+    this.db.prepare(
+      `INSERT OR REPLACE INTO history_summaries (session_id, summary, covered_count, updated_at)
+       VALUES (?, ?, ?, ?)`
+    ).run(sessionId, summary, coveredCount, new Date().toISOString())
   }
 
   getContext(fileId: string): LearnedContext | null {

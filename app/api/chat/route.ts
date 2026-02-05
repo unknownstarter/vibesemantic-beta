@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import { v4 as uuid } from 'uuid'
-import { generateCode, interpretResult } from '@/lib/claude'
+import { generateCode, interpretResult, compressHistory } from '@/lib/claude'
+import { parseRechartsCharts } from '@/lib/agent'
 import { executePython, validateCode } from '@/lib/executor'
 import { getSessionStore } from '@/lib/sessions'
 import type { ChatResponse, ChartData } from '@/lib/types'
@@ -53,10 +54,13 @@ export async function POST(request: NextRequest) {
       .filter(Boolean)
       .join('\n')
 
-    const codePrompt = `${message}\n\n파일 경로:\n${filePathContext}\n\n차트 생성 시 저장 경로: ${outputsDir}/${uuid()}.png`
+    const codePrompt = `${message}\n\n파일 경로:\n${filePathContext}\n\n시각화 시 RECHARTS_JSON으로 출력해. 복잡한 시각화만 matplotlib 사용 — 저장 경로: ${outputsDir}/${uuid()}.png`
+
+    // 대화 이력 압축 (10턴 초과 시)
+    const compressedHistory = await compressHistory(history || [], sessionId, store)
 
     // Generate code
-    let code = await generateCode(metadata, history || [], codePrompt)
+    let code = await generateCode(metadata, compressedHistory, codePrompt)
     const validation = validateCode(code)
 
     if (!validation.safe) {
@@ -76,14 +80,15 @@ export async function POST(request: NextRequest) {
     while (execResult.exitCode !== 0 && retries < 2) {
       retries++
       const retryPrompt = `이전 코드 실행이 실패했어. 에러를 수정해줘.\n\n이전 코드:\n\`\`\`python\n${code}\n\`\`\`\n\n에러:\n${execResult.stderr}\n\n파일 경로:\n${filePathContext}`
-      code = await generateCode(metadata, history || [], retryPrompt)
+      code = await generateCode(metadata, compressedHistory, retryPrompt)
       const fixValidation = validateCode(code)
       if (!fixValidation.safe) break
       execResult = await executePython(code, uploadsDir, 30000)
     }
 
-    // Build charts from generated files
-    const charts: ChartData[] = execResult.generatedFiles
+    // Build charts from Recharts JSON + image fallback
+    const rechartsCharts = parseRechartsCharts(execResult.stdout)
+    const imageCharts: ChartData[] = execResult.generatedFiles
       .filter(f => f.endsWith('.png') || f.endsWith('.jpg'))
       .map(f => ({
         id: uuid(),
@@ -93,6 +98,7 @@ export async function POST(request: NextRequest) {
         imageUrl: `/api/outputs/${f}`,
         source: 'Chat Analysis',
       }))
+    const charts: ChartData[] = [...rechartsCharts, ...imageCharts]
 
     // Interpret results
     const outputText = execResult.exitCode === 0

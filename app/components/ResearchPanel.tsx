@@ -7,6 +7,7 @@ import MarkdownRenderer from './MarkdownRenderer'
 import PlanView from './PlanView'
 import SuggestionChips from './SuggestionChips'
 import ExportButton from './ExportButton'
+import ChartCard from './ChartCard'
 
 interface ResearchPanelProps {
   selectedFileIds: string[]
@@ -91,7 +92,7 @@ export default function ResearchPanel({
     } finally {
       setIsLegacyLoading(false)
     }
-  }, [input, isLegacyLoading, isStreaming, messages, selectedFileIds, onMessagesChange])
+  }, [input, isLegacyLoading, isStreaming, messages, selectedFileIds, sessionId, onMessagesChange])
 
   // Agent-based analysis (multi-step)
   const handleAgentSend = useCallback(() => {
@@ -121,6 +122,13 @@ export default function ResearchPanel({
     setInput('')
     onStartAnalysis(question)
   }
+
+  const handleChartClick = useCallback((event: { suggestedQuestion: string }) => {
+    if (isLegacyLoading || isStreaming) return
+    const userMsg: ChatMessage = { role: 'user', content: event.suggestedQuestion }
+    onMessagesChange([...messages, userMsg])
+    onStartAnalysis(event.suggestedQuestion)
+  }, [isLegacyLoading, isStreaming, messages, onMessagesChange, onStartAnalysis])
 
   const loading = isLegacyLoading || isStreaming
 
@@ -204,35 +212,44 @@ export default function ResearchPanel({
               {msg.charts && msg.charts.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {msg.charts.map((chart) => (
-                    <div
-                      key={chart.id}
-                      className="overflow-hidden rounded-lg border"
-                      style={{ borderColor: 'var(--border-color)' }}
-                    >
-                      {chart.imageUrl && (
-                        <img
-                          src={chart.imageUrl}
-                          alt={chart.title}
-                          className="w-full cursor-pointer"
-                          onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
-                        />
-                      )}
+                    chart.data && chart.data.length > 0 ? (
+                      <ChartCard
+                        key={chart.id}
+                        chart={chart}
+                        onPin={() => onPinChart(chart)}
+                        onChartClick={handleChartClick}
+                      />
+                    ) : (
                       <div
-                        className="flex items-center justify-between px-3 py-2"
-                        style={{ background: 'var(--bg-primary)' }}
+                        key={chart.id}
+                        className="overflow-hidden rounded-lg border"
+                        style={{ borderColor: 'var(--border-color)' }}
                       >
-                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          {chart.title}
-                        </span>
-                        <button
-                          onClick={() => onPinChart(chart)}
-                          className="rounded px-2 py-0.5 text-xs hover:bg-white/10"
-                          style={{ color: 'var(--text-tertiary)' }}
+                        {chart.imageUrl && (
+                          <img
+                            src={chart.imageUrl}
+                            alt={chart.title}
+                            className="w-full cursor-pointer"
+                            onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
+                          />
+                        )}
+                        <div
+                          className="flex items-center justify-between px-3 py-2"
+                          style={{ background: 'var(--bg-primary)' }}
                         >
-                          Pin
-                        </button>
+                          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                            {chart.title}
+                          </span>
+                          <button
+                            onClick={() => onPinChart(chart)}
+                            className="rounded px-2 py-0.5 text-xs hover:bg-white/10"
+                            style={{ color: 'var(--text-tertiary)' }}
+                          >
+                            Pin
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )
                   ))}
                 </div>
               )}
@@ -247,35 +264,43 @@ export default function ResearchPanel({
         {streamCharts.length > 0 && (
           <div className="space-y-2">
             {streamCharts.map(chart => (
-              <div
-                key={chart.id}
-                className="overflow-hidden rounded-lg border"
-                style={{ borderColor: 'var(--border-color)' }}
-              >
-                {chart.imageUrl && (
-                  <img
-                    src={chart.imageUrl}
-                    alt={chart.title}
-                    className="w-full cursor-pointer"
-                    onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
-                  />
-                )}
+              chart.data && chart.data.length > 0 ? (
+                <ChartCard
+                  key={chart.id}
+                  chart={chart}
+                  onPin={() => onPinChart(chart)}
+                />
+              ) : (
                 <div
-                  className="flex items-center justify-between px-3 py-2"
-                  style={{ background: 'var(--bg-primary)' }}
+                  key={chart.id}
+                  className="overflow-hidden rounded-lg border"
+                  style={{ borderColor: 'var(--border-color)' }}
                 >
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    {chart.title}
-                  </span>
-                  <button
-                    onClick={() => onPinChart(chart)}
-                    className="rounded px-2 py-0.5 text-xs hover:bg-white/10"
-                    style={{ color: 'var(--text-tertiary)' }}
+                  {chart.imageUrl && (
+                    <img
+                      src={chart.imageUrl}
+                      alt={chart.title}
+                      className="w-full cursor-pointer"
+                      onClick={() => setModalImage({ src: chart.imageUrl!, alt: chart.title })}
+                    />
+                  )}
+                  <div
+                    className="flex items-center justify-between px-3 py-2"
+                    style={{ background: 'var(--bg-primary)' }}
                   >
-                    Pin
-                  </button>
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      {chart.title}
+                    </span>
+                    <button
+                      onClick={() => onPinChart(chart)}
+                      className="rounded px-2 py-0.5 text-xs hover:bg-white/10"
+                      style={{ color: 'var(--text-tertiary)' }}
+                    >
+                      Pin
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )
             ))}
           </div>
         )}

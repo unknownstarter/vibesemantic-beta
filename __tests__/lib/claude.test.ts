@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   buildCodeGenMessages,
   buildInterpretMessages,
   extractPythonCode,
+  compressHistory,
   MODEL_CODE_GEN,
   MODEL_INTERPRET,
 } from '@/lib/claude'
@@ -90,6 +91,47 @@ describe('buildInterpretMessages', () => {
   it('should include learned context in system when provided', () => {
     const result = buildInterpretMessages('결과', '질문', 'B2B SaaS')
     expect(result.system).toContain('B2B SaaS')
+  })
+})
+
+describe('compressHistory', () => {
+  it('should return history as-is when <= 10 messages', async () => {
+    const history = [
+      { role: 'user' as const, content: '질문1' },
+      { role: 'assistant' as const, content: '답변1' },
+      { role: 'user' as const, content: '질문2' },
+      { role: 'assistant' as const, content: '답변2' },
+    ]
+    const result = await compressHistory(history, undefined, null)
+    expect(result).toEqual(history)
+    expect(result).toHaveLength(4)
+  })
+
+  it('should return history as-is when exactly 10 messages', async () => {
+    const history = Array.from({ length: 10 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: `메시지 ${i}`,
+    }))
+    const result = await compressHistory(history, undefined, null)
+    expect(result).toHaveLength(10)
+  })
+
+  it('should use cached summary when available and sufficient', async () => {
+    const history = Array.from({ length: 14 }, (_, i) => ({
+      role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+      content: `메시지 ${i}`,
+    }))
+    const store = {
+      getSummary: vi.fn().mockReturnValue({ summary: '이전 대화 요약 내용', coveredCount: 4 }),
+      saveSummary: vi.fn(),
+    }
+    const result = await compressHistory(history, 'session-1', store)
+    // Should have: 1 summary message + 10 recent messages
+    expect(result).toHaveLength(11)
+    expect(result[0].content).toContain('이전 대화 요약')
+    expect(result[0].content).toContain('이전 대화 요약 내용')
+    // LLM should NOT have been called
+    expect(store.saveSummary).not.toHaveBeenCalled()
   })
 })
 

@@ -26,6 +26,15 @@ export interface ColumnInfo {
   topValues?: Array<{ value: string; count: number }>
 }
 
+// 프론트엔드용 파일 정보 (서버 경로 미포함)
+export interface UploadedFile {
+  id: string
+  name: string
+  columns: string[]
+  rowCount: number
+  sample: Record<string, unknown>[]
+}
+
 // 차트 데이터
 export type ChartType = 'bar' | 'line' | 'pie' | 'histogram' | 'summary'
 

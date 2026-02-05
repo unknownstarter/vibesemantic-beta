@@ -3,6 +3,7 @@ import path from 'path'
 import { runAgentLoop } from '@/lib/agent'
 import { getSessionStore } from '@/lib/sessions'
 import { buildCacheContext, buildLearnedContextString } from '@/lib/context'
+import { compressHistory } from '@/lib/claude'
 import type { AgentEvent } from '@/lib/types'
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -70,12 +71,15 @@ export async function POST(request: NextRequest): Promise<Response> {
           .map(id => store.getContext(id))
           .find(c => c !== null) ?? null
 
+        // 대화 이력 압축 (10턴 초과 시)
+        const compressedHistory = await compressHistory(history ?? [], sessionId, store)
+
         const agentResult = await runAgentLoop(
           question,
           metadata,
           caches,
           context,
-          history ?? [],
+          compressedHistory,
           filePathContext,
           outputsDir,
           sid,

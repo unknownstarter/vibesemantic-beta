@@ -42,10 +42,11 @@ export async function executePython(
   } catch { /* dir may not exist yet */ }
 
   return new Promise((resolve) => {
+    // Python 경로: PYTHON_PATH 환경 변수 > .venv/bin/python3 > python3
     const venvDir = [process.cwd(), '.venv'].join(path.sep)
     const venvBin = [venvDir, 'bin'].join(path.sep)
-    const venvPython = [venvBin, 'python3'].join(path.sep)
-    const proc = spawn(venvPython, ['-c', code], {
+    const pythonPath = process.env.PYTHON_PATH || [venvBin, 'python3'].join(path.sep)
+    const proc = spawn(pythonPath, ['-c', code], {
       cwd,
       timeout,
       env: {

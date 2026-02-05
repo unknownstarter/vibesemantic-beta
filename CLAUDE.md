@@ -97,22 +97,21 @@ scripts/           → External Systems (Python 실행 환경)
 - [x] `app/page.tsx` - 메인 앱 셸 + 상태 관리
 - [x] Supahero 영감 다크 모노크롬 디자인 시스템
 - [x] MVP 설계 문서 + 구현 플랜 문서
-- [x] 단위 테스트 14개 (metadata 3 + claude 4 + executor 3 + sessions 4)
+- [x] 단위 테스트 + 통합 테스트 112개 (13파일)
+- [x] P0 세션 영속화 — 새로고침 시 전체 상태 복원
+- [x] P1 LLM 스마트 차트 추천 — 규칙 기반 대시보드를 Haiku 추천으로 대체
+- [x] P2 채팅 Recharts 전환 — matplotlib PNG → 인터랙티브 차트 + 드릴다운 (2026-02-05)
+- [x] P3 대화 이력 압축 — 10턴 초과 시 Haiku 요약 + 캐싱 (2026-02-05)
+- [x] 타입 통합 — `UploadedFile` 중복 정의 제거, `lib/types.ts`로 통합 (2026-02-05)
+- [x] 통합 테스트 — 세션 생명주기 전체 플로우 테스트 6개 (2026-02-05)
+- [x] lint 0 warnings, 빌드 성공
+- [x] Python 경로 유연화 — `PYTHON_PATH` 환경 변수 지원
 
 ### 알려진 이슈 / 기술 부채
-- **fileRegistry in-memory**: `app/api/upload/route.ts`의 파일 레지스트리가 Map으로 메모리에만 존재 → 서버 재시작 시 업로드 파일 참조 소실 → 채팅 시 "파일 정보를 찾을 수 없습니다" 발생 가능
-- **타입 중복 정의**: `lib/types.ts`와 `app/page.tsx`에서 ChartData, ChatMessage가 각각 별도 정의 (구조 약간 상이). 통합 필요
-- **Python 가상환경 필수**: `lib/executor.ts`가 `.venv/bin/python3` 경로를 하드코딩. `.venv` 미설정 시 Python 실행 실패
-- **scripts/analyze.py 미구현**: 설계 문서에 언급되었으나 현재 inline 코드 생성 방식으로 대체. 필요 시 추후 구현
-- **대화 이력 압축 미구현**: 10턴 이상 시 대화 압축 로직 미구현 (설계만 존재)
-- **API 통합 테스트 미작성**: 단위 테스트만 존재, API 라우트 통합 테스트 필요
+- **P2 E2E 미검증**: Recharts 차트 전환이 실제 LLM 응답에서 안정적으로 동작하는지 실사용 검증 필요 (`docs/plans/2026-02-05-verification-checklist.md` 참조)
 
 ### 다음 단계 (우선순위)
-- [ ] fileRegistry를 SQLite로 영속화 (서버 재시작 대응)
-- [ ] page.tsx 타입을 lib/types.ts로 통합
-- [ ] 대화 이력 압축 로직 구현
-- [ ] API 라우트 통합 테스트 작성
-- [ ] `npm run build` + `npm run lint` 통과 확인
+- [ ] P2/P3 E2E 검증 (실제 CSV로 Recharts 차트 + 대화 압축 동작 확인)
 - [ ] 외부 API 연동 (GA4, Supabase 등 — MVP 이후)
 
 ---

@@ -144,4 +144,29 @@ describe('Learned Context', () => {
     const result = store.getContext('non-existent')
     expect(result).toBeNull()
   })
+
+  it('should save and retrieve history summary', () => {
+    store.createSession('Test', ['file1'])
+    const session = store.listSessions()[0]
+
+    expect(store.getSummary(session.id)).toBeNull()
+
+    store.saveSummary(session.id, '매출 분석에 대한 대화 요약', 8)
+    const summary = store.getSummary(session.id)
+    expect(summary).not.toBeNull()
+    expect(summary!.summary).toBe('매출 분석에 대한 대화 요약')
+    expect(summary!.coveredCount).toBe(8)
+  })
+
+  it('should update summary on re-save', () => {
+    store.createSession('Test', ['file1'])
+    const session = store.listSessions()[0]
+
+    store.saveSummary(session.id, '첫 번째 요약', 4)
+    store.saveSummary(session.id, '두 번째 요약 (더 긴 대화)', 10)
+
+    const summary = store.getSummary(session.id)
+    expect(summary!.summary).toBe('두 번째 요약 (더 긴 대화)')
+    expect(summary!.coveredCount).toBe(10)
+  })
 })

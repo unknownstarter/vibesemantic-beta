@@ -145,6 +145,58 @@ export async function interpretResult(
   })
 }
 
+// ========== 대화 이력 압축 ==========
+
+const COMPRESS_THRESHOLD = 10 // 10메시지 초과 시 압축
+const KEEP_RECENT = 10 // 최근 10메시지(5턴) 유지
+
+export async function compressHistory(
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+  sessionId: string | undefined,
+  store: { getSummary: (id: string) => { summary: string; coveredCount: number } | null; saveSummary: (id: string, summary: string, count: number) => void } | null,
+): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  if (history.length <= COMPRESS_THRESHOLD) return history
+
+  const toCompress = history.slice(0, history.length - KEEP_RECENT)
+  const recent = history.slice(history.length - KEEP_RECENT)
+
+  // Check cached summary
+  if (sessionId && store) {
+    const cached = store.getSummary(sessionId)
+    if (cached && cached.coveredCount >= toCompress.length) {
+      return [
+        { role: 'assistant', content: `[이전 대화 요약]\n${cached.summary}` },
+        ...recent,
+      ]
+    }
+  }
+
+  // Build summary using Haiku
+  const conversationText = toCompress
+    .map(m => `${m.role === 'user' ? '사용자' : 'AI'}: ${m.content.slice(0, 500)}`)
+    .join('\n')
+
+  const summary = await callClaude({
+    model: MODEL_INTERPRET,
+    systemBlocks: [withCacheControl(
+      '너는 대화 요약 전문가야. 이전 대화를 3-5문장으로 요약해. 핵심 분석 결과, 발견사항, 사용자의 관심사를 중심으로 요약해. 한국어로.'
+    )],
+    messages: [{ role: 'user', content: `다음 대화를 요약해:\n\n${conversationText}` }],
+    maxTokens: 512,
+    temperature: 0,
+  })
+
+  // Cache the summary
+  if (sessionId && store) {
+    store.saveSummary(sessionId, summary, toCompress.length)
+  }
+
+  return [
+    { role: 'assistant', content: `[이전 대화 요약]\n${summary}` },
+    ...recent,
+  ]
+}
+
 // ========== 유틸 ==========
 
 export function extractPythonCode(text: string): string {

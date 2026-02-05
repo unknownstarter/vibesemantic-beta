@@ -1,16 +1,8 @@
 "use client"
 
 import { useCallback, useRef, useState } from 'react'
-import type { ChartData, QuickAction, DataProfile, FileMetadata, DataBriefing } from '@/lib/types'
+import type { ChartData, QuickAction, DataProfile, FileMetadata, UploadedFile, DataBriefing } from '@/lib/types'
 import QuickActions from './QuickActions'
-
-interface UploadedFile {
-  id: string
-  name: string
-  columns: string[]
-  rowCount: number
-  sample: Record<string, unknown>[]
-}
 
 interface SidebarProps {
   files: UploadedFile[]

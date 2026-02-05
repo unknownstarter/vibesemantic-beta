@@ -1,20 +1,12 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import type { FileMetadata, ChartData, ChatMessage, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
+import type { FileMetadata, UploadedFile, ChartData, ChatMessage, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import DataTable from './components/DataTable'
 import ResearchPanel from './components/ResearchPanel'
 import { useAgentStream, type AgentCompleteResult } from './hooks/useAgentStream'
-
-interface UploadedFile {
-  id: string
-  name: string
-  columns: string[]
-  rowCount: number
-  sample: Record<string, unknown>[]
-}
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null)
