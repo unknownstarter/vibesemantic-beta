@@ -43,3 +43,19 @@ next-env.d.ts
 
 # python venv
 .venv/
+
+# Local settings
+.claude/settings.local.json
+
+# SQLite journal files
+*.db-shm
+*.db-wal
+
+# Playwright MCP
+.playwright-mcp/
+
+# Test data
+test-data/
+
+# Screenshots
+*.png
