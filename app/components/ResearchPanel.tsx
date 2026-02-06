@@ -23,6 +23,7 @@ interface ResearchPanelProps {
   streamCharts: ChartData[]
   onStartAnalysis: (question: string) => void
   elapsedSeconds?: number
+  briefingSuggestions?: string[]
 }
 
 export default function ResearchPanel({
@@ -39,6 +40,7 @@ export default function ResearchPanel({
   streamCharts,
   onStartAnalysis,
   elapsedSeconds,
+  briefingSuggestions = [],
 }: ResearchPanelProps) {
   const [input, setInput] = useState('')
   const [isLegacyLoading, setIsLegacyLoading] = useState(false)
@@ -165,16 +167,30 @@ export default function ResearchPanel({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-        {/* Empty state */}
+        {/* Empty state — 브리핑 추천 질문이 있으면 프로액티브 메시지 */}
         {messages.length === 0 && !plan && (
           <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
-                데이터에 대해 무엇이든 질문하세요
-              </p>
-              <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                AI가 다단계 분석 계획을 세우고 실행합니다
-              </p>
+            <div className="text-center px-4">
+              {briefingSuggestions.length > 0 ? (
+                <>
+                  <div className="mb-3 text-2xl">👋</div>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    데이터를 분석했어요!
+                  </p>
+                  <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                    아래 추천 질문을 클릭하거나 직접 질문해보세요
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                    데이터에 대해 무엇이든 질문하세요
+                  </p>
+                  <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                    AI가 다단계 분석 계획을 세우고 실행합니다
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -341,17 +357,21 @@ export default function ResearchPanel({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Suggestion Chips — 스트리밍 중에는 live state, 완료 후에는 chatMessages에서 */}
+      {/* Suggestion Chips — 스트리밍 중 > 메시지 내 > 브리핑 폴백 순서 */}
       {(() => {
         const liveFollowUps = isStreaming ? followUpQuestions : []
         const lastAssistant = !isStreaming
           ? [...messages].reverse().find(m => m.role === 'assistant' && m.followUpQuestions && m.followUpQuestions.length > 0)
           : null
+        // 우선순위: 스트리밍 > 메시지 내 followUpQuestions > 브리핑 suggestedQuestions
         const activeFollowUps = liveFollowUps.length > 0
           ? liveFollowUps
-          : lastAssistant?.followUpQuestions ?? []
+          : lastAssistant?.followUpQuestions ?? briefingSuggestions
         return activeFollowUps.length > 0 && !loading ? (
-          <div className="border-t px-4 py-2" style={{ borderColor: 'var(--border-color)' }}>
+          <div className="border-t px-4 py-3" style={{ borderColor: 'var(--border-color)' }}>
+            <p className="mb-2 text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>
+              💡 이런 질문을 해보세요
+            </p>
             <SuggestionChips questions={activeFollowUps} onSelect={handleSuggestionSelect} />
           </div>
         ) : null

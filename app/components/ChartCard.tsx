@@ -187,7 +187,7 @@ export default function ChartCard({ chart, pinned, onPin, onUnpin, onChartClick 
 
   return (
     <div
-      className="overflow-hidden rounded-xl border"
+      className="animate-fade-in overflow-hidden rounded-xl border"
       style={{
         background: 'var(--bg-card)',
         borderColor: pinned ? 'var(--accent-muted)' : 'var(--border-color)',

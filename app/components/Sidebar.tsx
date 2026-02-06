@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react'
 import type { ChartData, QuickAction, DataProfile, FileMetadata, UploadedFile, DataBriefing } from '@/lib/types'
 import QuickActions from './QuickActions'
+import type { UploadStatus } from '@/app/hooks/useUploadStream'
 
 interface SidebarProps {
   files: UploadedFile[]
@@ -21,6 +22,10 @@ interface SidebarProps {
   onQuickAction: (prompt: string) => void
   onToggleDataTable: () => void
   showDataTable: boolean
+  // Streaming upload props
+  uploadStatus?: UploadStatus
+  uploadMessage?: string
+  onUploadStart?: (files: FileList) => void
 }
 
 export default function Sidebar({
@@ -33,13 +38,29 @@ export default function Sidebar({
   onQuickAction,
   onToggleDataTable,
   showDataTable,
+  uploadStatus,
+  uploadMessage,
+  onUploadStart,
 }: SidebarProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Use streaming upload if available
+  const isStreamingUpload = !!onUploadStart
+  const isCurrentlyUploading = isStreamingUpload
+    ? (uploadStatus !== 'idle' && uploadStatus !== 'complete' && uploadStatus !== 'error')
+    : isUploading
+
   const handleUpload = useCallback(
     async (fileList: FileList) => {
+      // Use streaming upload if available
+      if (onUploadStart) {
+        onUploadStart(fileList)
+        return
+      }
+
+      // Legacy upload path
       setIsUploading(true)
       try {
         const formData = new FormData()
@@ -77,7 +98,7 @@ export default function Sidebar({
         setIsUploading(false)
       }
     },
-    [onFilesUploaded, sessionId]
+    [onFilesUploaded, sessionId, onUploadStart]
   )
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -140,15 +161,25 @@ export default function Sidebar({
           className="sr-only"
           onChange={(e) => e.target.files && handleUpload(e.target.files)}
         />
-        {isUploading ? (
-          <div className="flex items-center gap-2">
-            <div
-              className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
-              style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
-            />
-            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Uploading...
-            </span>
+        {isCurrentlyUploading ? (
+          <div className="flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2">
+              <div
+                className="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
+                style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
+              />
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {uploadMessage || 'Uploading...'}
+              </span>
+            </div>
+            {uploadStatus && uploadStatus !== 'uploading' && (
+              <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                {uploadStatus === 'parsing' && '파일 분석 중...'}
+                {uploadStatus === 'profiling' && '프로파일링...'}
+                {uploadStatus === 'briefing' && '브리핑 생성 중...'}
+                {uploadStatus === 'charts' && '차트 생성 중...'}
+              </span>
+            )}
           </div>
         ) : (
           <>

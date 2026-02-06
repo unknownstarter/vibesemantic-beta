@@ -7,16 +7,18 @@ interface DataBriefingCardProps {
   briefing: DataBriefing
   profile: DataProfile | null
   onConfirm: (briefing: DataBriefing) => void
+  defaultCollapsed?: boolean
 }
 
 export default function DataBriefingCard({
   briefing,
   profile,
   onConfirm,
+  defaultCollapsed = false,
 }: DataBriefingCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [userContext, setUserContext] = useState('')
-  const [isExpanded, setIsExpanded] = useState(!briefing.confirmed)
+  const [isExpanded, setIsExpanded] = useState(!briefing.confirmed && !defaultCollapsed)
   const bodyRef = useRef<HTMLDivElement>(null)
 
   // 확인 시 800ms 후 자동 접기

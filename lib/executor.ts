@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import fs from 'fs/promises'
 import path from 'path'
 import type { ExecutionResult } from './types'
+import { executeWithWorker, warmPool, isPoolInitialized } from './python-pool'
 
 const BLOCKED_IMPORTS = [
   'subprocess', 'socket', 'urllib', 'requests', 'http.client',
@@ -41,6 +42,33 @@ export async function executePython(
     filesBefore = await fs.readdir(outputsDir)
   } catch { /* dir may not exist yet */ }
 
+  // Try pool execution first
+  if (isPoolInitialized()) {
+    const poolStart = Date.now()
+    const poolResult = await executeWithWorker(code, timeout)
+
+    // Check if pool execution succeeded (not fallback)
+    if (poolResult.stderr !== '__POOL_FALLBACK__') {
+      console.log(`[POOL] Executed in ${Date.now() - poolStart}ms (exit: ${poolResult.exitCode})`)
+      let generatedFiles: string[] = []
+      try {
+        const filesAfter = await fs.readdir(outputsDir)
+        generatedFiles = filesAfter.filter(f => !filesBefore.includes(f))
+      } catch { /* ignore */ }
+
+      return {
+        stdout: poolResult.stdout.slice(0, 1024 * 100),
+        stderr: poolResult.stderr.slice(0, 1024 * 10),
+        exitCode: poolResult.exitCode,
+        generatedFiles,
+      }
+    }
+    // Pool unavailable or failed - fall through to spawn
+    console.log('[POOL] Fallback to spawn (pool unavailable)')
+  }
+
+  // Fallback: spawn new process (also used when pool not initialized)
+  console.log('[EXECUTOR] Using spawn (pool not initialized or fallback)')
   return new Promise((resolve) => {
     // Python 경로: PYTHON_PATH 환경 변수 > .venv/bin/python3 > python3
     const venvDir = [process.cwd(), '.venv'].join(path.sep)
@@ -88,4 +116,14 @@ export async function executePython(
       })
     })
   })
+}
+
+/**
+ * Initialize Python worker pool at server startup
+ * Call this from app initialization or API route
+ */
+export async function initPythonPool(): Promise<void> {
+  if (!isPoolInitialized()) {
+    await warmPool(2)
+  }
 }

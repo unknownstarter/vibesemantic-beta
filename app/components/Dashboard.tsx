@@ -1,9 +1,12 @@
 "use client"
 
 import { useState, useMemo } from 'react'
-import type { ChartData, DataProfile, DataBriefing } from '@/lib/types'
+import type { ChartData, DataProfile, DataBriefing, ActionRecommendation } from '@/lib/types'
 import ChartCard from './ChartCard'
 import DataBriefingCard from './DataBriefingCard'
+import ChartSkeleton from './ChartSkeleton'
+import BriefingSkeleton from './BriefingSkeleton'
+import ActionCard from './ActionCard'
 
 interface DashboardProps {
   charts: ChartData[]
@@ -13,6 +16,9 @@ interface DashboardProps {
   briefings?: DataBriefing[]
   onConfirmBriefing: (briefing: DataBriefing) => void
   onChartClick?: (event: { suggestedQuestion: string }) => void
+  onActionClick?: (action: ActionRecommendation) => void
+  isLoading?: boolean
+  loadingMessage?: string
 }
 
 interface SourceGroup {
@@ -28,8 +34,16 @@ export default function Dashboard({
   briefings = [],
   onConfirmBriefing,
   onChartClick,
+  onActionClick,
+  isLoading = false,
+  loadingMessage,
 }: DashboardProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  // Collect all action recommendations from briefings
+  const allActionRecommendations = useMemo(() => {
+    return briefings.flatMap(b => b.actionRecommendations ?? [])
+  }, [briefings])
 
   // 차트를 데이터 소스별로 그룹핑
   const sourceGroups = useMemo<SourceGroup[]>(() => {
@@ -70,7 +84,8 @@ export default function Dashboard({
 
   const allEmpty = charts.length === 0 && pinnedCharts.length === 0 && briefings.length === 0
 
-  if (allEmpty) {
+  // Empty state (no loading, no data)
+  if (!isLoading && allEmpty) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
@@ -88,15 +103,68 @@ export default function Dashboard({
 
   return (
     <div>
-      {/* Data Briefing Cards — 새 브리핑이 위에 오도록 역순 표시 */}
+      {/* Loading Progress Banner */}
+      {isLoading && (
+        <div
+          className="mb-4 flex items-center gap-3 rounded-lg p-3"
+          style={{
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div className="flex items-center gap-1">
+            <span
+              className="inline-block h-2 w-2 animate-bounce rounded-full"
+              style={{ background: 'var(--accent)', animationDelay: '0ms' }}
+            />
+            <span
+              className="inline-block h-2 w-2 animate-bounce rounded-full"
+              style={{ background: 'var(--accent)', animationDelay: '150ms' }}
+            />
+            <span
+              className="inline-block h-2 w-2 animate-bounce rounded-full"
+              style={{ background: 'var(--accent)', animationDelay: '300ms' }}
+            />
+          </div>
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            {loadingMessage || '분석 중...'}
+          </span>
+          {charts.length > 0 && (
+            <span
+              className="ml-auto rounded-full px-2 py-0.5 text-xs"
+              style={{ background: 'var(--accent-muted)', color: 'var(--text-primary)' }}
+            >
+              {charts.length}개 차트 생성됨
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 🔥 Action Recommendations — 가장 눈에 띄는 위치 (맨 위) */}
+      {allActionRecommendations.length > 0 && (
+        <ActionCard
+          recommendations={allActionRecommendations}
+          onActionClick={onActionClick}
+        />
+      )}
+
+      {/* Briefing skeleton when loading and no briefing yet */}
+      {isLoading && briefings.length === 0 && (
+        <div className="mb-4">
+          <BriefingSkeleton />
+        </div>
+      )}
+
+      {/* Data Briefing Cards — 최신 브리핑만 펼침, 나머지는 접힘 */}
       {briefings.length > 0 && (
-        <div className="mb-4 space-y-3">
+        <div className="mb-4 space-y-2">
           {[...briefings].reverse().map((b, i) => (
             <DataBriefingCard
               key={`briefing-${briefings.length - 1 - i}`}
               briefing={b}
               profile={i === 0 ? (profile ?? null) : null}
               onConfirm={onConfirmBriefing}
+              defaultCollapsed={i > 0}
             />
           ))}
         </div>
@@ -174,6 +242,23 @@ export default function Dashboard({
           </section>
         )
       })}
+
+      {/* Chart skeletons while loading (show remaining placeholders) */}
+      {isLoading && charts.length < 6 && (
+        <section className="mb-5">
+          <div
+            className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wider"
+            style={{ color: 'var(--text-tertiary)' }}
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 animate-pulse rounded-full"
+              style={{ background: 'var(--accent)' }}
+            />
+            생성 중...
+          </div>
+          <ChartSkeleton count={Math.max(2, 6 - charts.length)} />
+        </section>
+      )}
     </div>
   )
 }

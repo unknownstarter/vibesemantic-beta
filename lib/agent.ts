@@ -204,23 +204,106 @@ async function synthesize(
 
 // ========== Fast Path ==========
 
+interface FastPathClassification {
+  isFastPath: boolean
+  type: 'simple' | 'direct_lookup' | 'cached_replay' | 'aggregation' | 'none'
+  reason: string
+}
+
 function classifyQuery(
   question: string,
   metadata: MetadataSummary[],
   history: Array<{ role: string; content: string }>,
-): { isFastPath: boolean } {
+): FastPathClassification {
+  // Extended simple patterns (50%+ coverage target)
   const simplePatterns = [
+    // 기존 패턴
     /평균|mean|average/i, /합계|sum|total/i,
     /최대|최소|max|min/i, /개수|count|몇/i,
     /분포|distribution/i, /상관|correlation/i,
     /비율|percentage/i, /그룹|group/i,
     /요약|describe|summary/i, /표준편차|std/i,
+    // 확장 패턴
+    /비교|compare/i, /추이|trend/i, /순위|rank|top/i,
+    /보여|show|display/i, /리스트|list/i,
+    /얼마|몇\s*(개|건|명|원)/i, /몇\s*%/i,
+    /가장|제일/i, /상위|하위|top\s*\d+|bottom\s*\d+/i,
+    /총|전체/i, /증가|감소|변화/i,
+    /월별|일별|연도별|년별|분기별/i,
+    /카테고리별|유형별|종류별/i,
+    // 추가 패턴 (v2)
+    /알려줘|알려\s*줄래/i, /뭐야|뭔가요/i,
+    /어때|어떻|어떤/i, /있어|있나요|있는지/i,
+    /높은|낮은|큰|작은/i, /많은|적은/i,
+    /차이|격차|갭/i, /성장|하락|상승|감소율/i,
+    /데이터|값|수치/i, /통계/i,
   ]
+
+  // Direct lookup patterns: 특정 값 조회 ("A의 B는?", "X 값 알려줘")
+  const directLookupPatterns = [
+    /(.+)의\s*(.+)[은는이가]\s*(뭐|무엇|얼마)/i,
+    /(.+)\s*값\s*(알려|보여|확인)/i,
+    /(.+)\s*(조회|검색|찾아)/i,
+    /(.+)[은는이가]\s*얼마/i,
+    /(.+)\s*어디/i,
+  ]
+
+  // Cached replay patterns: 이전 분석 참조 ("아까", "방금", "위에")
+  const cachedReplayPatterns = [
+    /아까|방금|이전|위에|앞서/i,
+    /그\s*(결과|분석|차트)/i,
+    /다시\s*(보여|확인)/i,
+    /같은\s*(분석|차트)/i,
+  ]
+
+  // Aggregation patterns: 집계 쿼리 (단일 연산, 파일 수 무관)
+  const aggregationPatterns = [
+    /^(총|전체|모든).*(합계|개수|평균|합|수)/i,
+    /전체\s*(매출|수익|판매|금액)/i,
+    /총\s*(건수|개수|수량)/i,
+    /데이터\s*(요약|개요|현황)/i,
+  ]
+
   const isSimple = simplePatterns.some(p => p.test(question))
+  const isDirectLookup = directLookupPatterns.some(p => p.test(question))
+  const isCachedReplay = cachedReplayPatterns.some(p => p.test(question)) && history.length > 0
+  const isAggregation = aggregationPatterns.some(p => p.test(question))
+
+  // 조건 완화: 200자, history 6턴, 파일 3개까지
+  const isFewFiles = metadata.length <= 3
   const isSingleFile = metadata.length <= 1
-  const isShort = question.length < 150
-  const isEarlyConversation = history.length <= 2
-  return { isFastPath: isSimple && isSingleFile && isShort && isEarlyConversation }
+  const isShort = question.length < 200
+  const isMediumLength = question.length < 300
+  const isEarlyConversation = history.length <= 6
+
+  // Fast Path 우선순위: cached_replay > aggregation > direct_lookup > simple
+  if (isCachedReplay && isShort) {
+    console.log('[FAST_PATH] cached_replay:', question.slice(0, 50))
+    return { isFastPath: true, type: 'cached_replay', reason: '이전 분석 참조' }
+  }
+
+  if (isAggregation && isFewFiles && isMediumLength) {
+    console.log('[FAST_PATH] aggregation:', question.slice(0, 50))
+    return { isFastPath: true, type: 'aggregation', reason: '전체 집계 쿼리' }
+  }
+
+  if (isDirectLookup && isFewFiles && isShort) {
+    console.log('[FAST_PATH] direct_lookup:', question.slice(0, 50))
+    return { isFastPath: true, type: 'direct_lookup', reason: '단일 값 조회' }
+  }
+
+  if (isSimple && isSingleFile && isShort && isEarlyConversation) {
+    console.log('[FAST_PATH] simple:', question.slice(0, 50))
+    return { isFastPath: true, type: 'simple', reason: '단순 통계 쿼리' }
+  }
+
+  // 완화된 simple 조건: 파일 3개 이하 + 짧은 질문 + 단순 패턴
+  if (isSimple && isFewFiles && isShort) {
+    console.log('[FAST_PATH] simple_relaxed:', question.slice(0, 50))
+    return { isFastPath: true, type: 'simple', reason: '단순 통계 쿼리 (완화)' }
+  }
+
+  return { isFastPath: false, type: 'none', reason: '' }
 }
 
 async function runFastPath(
@@ -230,6 +313,7 @@ async function runFastPath(
   outputsDir: string,
   onEvent: (event: AgentEvent) => void,
 ): Promise<AgentResult> {
+  const startTime = Date.now()
   const stepId = uuid()
   const planId = uuid()
 
@@ -251,6 +335,7 @@ async function runFastPath(
   const system = buildStepCoderSystem(dataContext)
   const prompt = `${question}\n\n파일 경로:\n${filePathContext}\n\n시각화 시 RECHARTS_JSON으로 출력해. 복잡한 시각화(히트맵, 산점도 등)만 matplotlib 사용 — 저장 경로: ${outputsDir}/${uuid()}.png`
 
+  console.log('[FAST_PATH] Generating code with Haiku...')
   const text = await callClaude({
     model: MODEL_INTERPRET, // Haiku for fast path
     systemBlocks: [withCacheControl(system)],
@@ -258,6 +343,7 @@ async function runFastPath(
     maxTokens: 2048,
     temperature: 0,
   })
+  console.log(`[FAST_PATH] Code generated in ${Date.now() - startTime}ms`)
 
   const code = extractPythonCode(text)
   const validation = validateCode(code)
@@ -271,8 +357,10 @@ async function runFastPath(
     return { plan, insight, citations: [], charts: [], followUpQuestions: [] }
   }
 
-  // Execute with short timeout (5s)
-  const result = await executePython(code, process.cwd(), 5000)
+  // Execute with timeout (8s for slightly complex queries)
+  console.log('[FAST_PATH] Executing Python code...')
+  const result = await executePython(code, process.cwd(), 8000)
+  console.log(`[FAST_PATH] Total time: ${Date.now() - startTime}ms, exit: ${result.exitCode}`)
 
   const charts = buildChartsFromResult(result.stdout, result.generatedFiles, question)
 
@@ -331,8 +419,11 @@ export async function runAgentLoop(
   onEvent: (event: AgentEvent) => void,
 ): Promise<AgentResult> {
   // Fast path: 간단 쿼리는 Haiku 1회 호출로 처리
+  // 캐시가 있어도 cached_replay, aggregation, direct_lookup은 Fast Path 사용
   const classification = classifyQuery(question, metadata, history)
-  if (classification.isFastPath && caches.length === 0) {
+  const allowFastPathWithCache = ['cached_replay', 'aggregation', 'direct_lookup'].includes(classification.type)
+  if (classification.isFastPath && (caches.length === 0 || allowFastPathWithCache)) {
+    console.log(`[AGENT] Fast Path activated: ${classification.type} - ${classification.reason}`)
     return runFastPath(question, metadata, filePathContext, outputsDir, onEvent)
   }
 

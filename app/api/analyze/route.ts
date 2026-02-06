@@ -4,7 +4,11 @@ import { runAgentLoop } from '@/lib/agent'
 import { getSessionStore } from '@/lib/sessions'
 import { buildCacheContext, buildLearnedContextString } from '@/lib/context'
 import { compressHistory } from '@/lib/claude'
+import { initPythonPool } from '@/lib/executor'
 import type { AgentEvent } from '@/lib/types'
+
+// Initialize Python pool on first request
+let poolInitialized = false
 
 export async function POST(request: NextRequest): Promise<Response> {
   const body = await request.json()
@@ -30,6 +34,12 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
 
       try {
+        // Initialize Python pool (lazy, once per server lifetime)
+        if (!poolInitialized) {
+          await initPythonPool()
+          poolInitialized = true
+        }
+
         const store = getSessionStore()
         const outputsDir = path.join(process.cwd(), 'outputs')
 

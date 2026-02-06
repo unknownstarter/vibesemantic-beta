@@ -244,6 +244,18 @@ export type ExportFormat = 'python' | 'notebook'
 
 // ========== Data Briefing (Infer-Then-Confirm) ==========
 
+export interface ActionRecommendation {
+  id: string
+  action: string           // 구체적 액션 (예: "Meta Ads 예산 20% 증액")
+  expectedOutcome: string  // 예상 결과 (예: "ROAS 15% 개선 예상")
+  reasoning: string        // 근거 (예: "현재 Meta Ads ROAS 6.23 > Google 5.26")
+  impact: 'high' | 'medium' | 'low'
+  effort: 'low' | 'medium' | 'high'
+  metric?: string          // 관련 지표
+  currentValue?: string    // 현재 값
+  targetValue?: string     // 목표 값
+}
+
 export interface DataBriefing {
   domain: string
   briefing: string
@@ -253,4 +265,5 @@ export interface DataBriefing {
   suggestedQuestions: string[]
   greeting: string
   confirmed: boolean
+  actionRecommendations?: ActionRecommendation[]
 }

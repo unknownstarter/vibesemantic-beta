@@ -1,7 +1,8 @@
 import { callClaude, MODEL_INTERPRET } from './claude'
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/messages'
-import type { DataBriefing, DataProfile } from './types'
+import type { DataBriefing, DataProfile, ActionRecommendation } from './types'
 import type { MetadataSummary } from './claude'
+import { v4 as uuid } from 'uuid'
 
 export function buildInferencePrompt(
   metadata: MetadataSummary[],
@@ -39,7 +40,14 @@ const INFERENCE_SYSTEM = `너는 데이터 분석 전문가이자 비즈니스 �
 4. 이 데이터로 경영진이 의사결정할 수 있는 실질적 분석 질문 3개를 추천해. 질문은 구체적이고 액셔너블해야 함.
 5. warnings는 데이터 품질이 아닌 비즈니스 관점 주의사항. (예: "총수익 컬럼이 모두 0 → 매출 추적이 미설정된 것으로 보임")
 6. greeting은 마치 전문 데이터 분석가가 첫 미팅에서 하는 인사처럼 — 데이터를 이미 살펴본 느낌으로 2-3문장.
-7. 반드시 순수 JSON만 응답. 마크다운 코드블록(백틱) 절대 사용하지 마.
+7. **actionRecommendations**: 데이터에서 발견한 패턴을 바탕으로 즉시 실행 가능한 구체적 액션 2-3개를 제안해.
+   - action: "무엇을 해야 하는가" (구체적, 수치 포함)
+   - expectedOutcome: "예상 결과" (정량적으로, 예: "ROAS 15% 개선")
+   - reasoning: "왜 이 액션을 추천하는가" (데이터 근거)
+   - impact: high/medium/low (비즈니스 영향도)
+   - effort: low/medium/high (실행 난이도)
+   - 가능하면 현재값(currentValue)과 목표값(targetValue)도 포함
+8. 반드시 순수 JSON만 응답. 마크다운 코드블록(백틱) 절대 사용하지 마.
 
 {
   "domain": "구체적 도메인 (예: 모바일 앱 분석 (Google Analytics 4 - 알트타운))",
@@ -48,7 +56,19 @@ const INFERENCE_SYSTEM = `너는 데이터 분석 전문가이자 비즈니스 �
   "keyMetrics": ["가장 중요한 지표 컬럼명 3-5개"],
   "warnings": ["비즈니스 관점 주의사항 2-3개"],
   "suggestedQuestions": ["경영진/마케터가 물어볼 법한 구체적 분석 질문 3개"],
-  "greeting": "전문 분석가 스타일 인사 + 데이터에서 즉시 발견한 인사이트 1개"
+  "greeting": "전문 분석가 스타일 인사 + 데이터에서 즉시 발견한 인사이트 1개",
+  "actionRecommendations": [
+    {
+      "action": "구체적 액션 (예: Meta Ads 예산 20% 증액)",
+      "expectedOutcome": "예상 결과 (예: ROAS 15% 개선, 월 매출 2000만원 증가)",
+      "reasoning": "데이터 근거 (예: 현재 Meta ROAS 6.23 > Google 5.26, 재구매율도 48% vs 29%)",
+      "impact": "high",
+      "effort": "low",
+      "metric": "ROAS",
+      "currentValue": "5.26",
+      "targetValue": "6.0"
+    }
+  ]
 }`
 
 export async function inferContext(
@@ -94,6 +114,7 @@ export function parseInferenceResult(text: string, metadata?: MetadataSummary[])
       suggestedQuestions: parsed.suggestedQuestions ?? [],
       greeting: parsed.greeting ?? '',
       confirmed: false,
+      actionRecommendations: parseActionRecommendations(parsed.actionRecommendations),
     }
   } catch (firstErr) {
     // JSON이 잘린 경우 복구 시도: 닫히지 않은 괄호 닫기
@@ -124,12 +145,28 @@ export function parseInferenceResult(text: string, metadata?: MetadataSummary[])
         suggestedQuestions: parsed.suggestedQuestions ?? [],
         greeting: parsed.greeting ?? '',
         confirmed: false,
+        actionRecommendations: parseActionRecommendations(parsed.actionRecommendations),
       }
     } catch {
       console.error('[BRIEFING] JSON parse failed (unrecoverable):', firstErr, '\nRaw text:', text.slice(0, 500))
       return fallbackBriefing(metadata ?? [])
     }
   }
+}
+
+function parseActionRecommendations(raw: unknown): ActionRecommendation[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((item: Record<string, unknown>) => ({
+    id: uuid(),
+    action: String(item.action ?? ''),
+    expectedOutcome: String(item.expectedOutcome ?? ''),
+    reasoning: String(item.reasoning ?? ''),
+    impact: (['high', 'medium', 'low'].includes(String(item.impact)) ? item.impact : 'medium') as 'high' | 'medium' | 'low',
+    effort: (['low', 'medium', 'high'].includes(String(item.effort)) ? item.effort : 'medium') as 'low' | 'medium' | 'high',
+    metric: item.metric ? String(item.metric) : undefined,
+    currentValue: item.currentValue ? String(item.currentValue) : undefined,
+    targetValue: item.targetValue ? String(item.targetValue) : undefined,
+  })).filter(a => a.action && a.expectedOutcome)
 }
 
 function fallbackBriefing(metadata: MetadataSummary[]): DataBriefing {
@@ -144,5 +181,6 @@ function fallbackBriefing(metadata: MetadataSummary[]): DataBriefing {
     suggestedQuestions: [],
     greeting: `${label} 데이터를 받았습니다. 어떤 분석을 해드릴까요?`,
     confirmed: false,
+    actionRecommendations: [],
   }
 }

@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import type { FileMetadata, UploadedFile, ChartData, ChatMessage, DataProfile, QuickAction, DataBriefing } from '@/lib/types'
+import type { FileMetadata, UploadedFile, ChartData, ChatMessage, DataProfile, QuickAction, DataBriefing, ActionRecommendation } from '@/lib/types'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import DataTable from './components/DataTable'
 import ResearchPanel from './components/ResearchPanel'
 import { useAgentStream, type AgentCompleteResult } from './hooks/useAgentStream'
+import { useUploadStream } from './hooks/useUploadStream'
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -25,6 +26,7 @@ export default function Home() {
   const chatInputRef = useRef<string>('')
 
   const agent = useAgentStream()
+  const uploadStream = useUploadStream()
 
   // 페이지 로드 시 마지막 세션 복원
   useEffect(() => {
@@ -169,6 +171,61 @@ export default function Home() {
     }
   }, [])
 
+  // Streaming upload handler
+  const handleUploadStart = useCallback((fileList: FileList) => {
+    uploadStream.startUpload(fileList, sessionId, (result) => {
+      // Called when streaming upload completes
+      setSessionId(result.sessionId)
+
+      const mapped: UploadedFile[] = result.files.map(f => ({
+        id: f.id,
+        name: f.name,
+        columns: f.columns.map(c => c.name),
+        rowCount: f.rowCount,
+        sample: f.sample,
+      }))
+      setFiles(prev => [...prev, ...mapped])
+      setSelectedFileIds(prev => [...prev, ...result.files.map(f => f.id)])
+
+      // Update charts
+      setDashboardCharts(prev => {
+        const newSources = new Set(result.charts.map(c => c.source).filter(Boolean))
+        const kept = prev.filter(c => !c.source || !newSources.has(c.source))
+        return [...kept, ...result.charts]
+      })
+
+      if (result.profiles[0]) setProfile(result.profiles[0])
+
+      if (result.quickActions && result.quickActions.length > 0) {
+        setQuickActions(prev => {
+          const merged = [...result.quickActions, ...prev]
+          const seen = new Set<string>()
+          return merged.filter(a => {
+            if (seen.has(a.label)) return false
+            seen.add(a.label)
+            return true
+          }).slice(0, 5)
+        })
+      }
+
+      if (result.briefing) {
+        setBriefings(prev => [...prev, result.briefing!])
+        setIsChatOpen(true)
+        if (result.briefing.greeting) {
+          setChatMessages(prev => {
+            const greetingMsg: ChatMessage = {
+              role: 'assistant',
+              content: result.briefing!.greeting,
+              followUpQuestions: result.briefing!.suggestedQuestions,
+            }
+            if (prev.length === 0) return [greetingMsg]
+            return [...prev, greetingMsg]
+          })
+        }
+      }
+    })
+  }, [sessionId, uploadStream])
+
   const handlePinChart = useCallback((chart: ChartData) => {
     setPinnedCharts(prev => {
       if (prev.some(c => c.id === chart.id)) return prev
@@ -239,6 +296,28 @@ export default function Home() {
     )
   }, [agent, selectedFileIds, sessionId, chatMessages, handleAnalysisComplete])
 
+  // Action Recommendation → Agent Analysis (원클릭 액션 제안)
+  const handleActionClick = useCallback((action: ActionRecommendation) => {
+    setIsChatOpen(true)
+    const prompt = `"${action.action}" 액션에 대해 상세 분석해줘.
+
+근거: ${action.reasoning}
+예상 결과: ${action.expectedOutcome}
+${action.metric ? `관련 지표: ${action.metric} (현재: ${action.currentValue}, 목표: ${action.targetValue})` : ''}
+
+이 액션의 타당성을 검증하고, 구체적인 실행 방안과 예상 ROI를 분석해줘.`
+
+    const userMsg: ChatMessage = { role: 'user', content: prompt }
+    setChatMessages(prev => [...prev, userMsg])
+    agent.startAnalysis(
+      prompt,
+      selectedFileIds,
+      sessionId ?? undefined,
+      chatMessages.map(m => ({ role: m.role, content: m.content })),
+      handleAnalysisComplete,
+    )
+  }, [agent, selectedFileIds, sessionId, chatMessages, handleAnalysisComplete])
+
   // Start agent analysis
   const handleStartAnalysis = useCallback((question: string) => {
     agent.startAnalysis(
@@ -289,6 +368,9 @@ export default function Home() {
         onQuickAction={handleQuickAction}
         onToggleDataTable={() => setShowDataTable(prev => !prev)}
         showDataTable={showDataTable}
+        uploadStatus={uploadStream.status}
+        uploadMessage={uploadStream.message}
+        onUploadStart={handleUploadStart}
       />
 
       {/* Main Dashboard */}
@@ -299,13 +381,16 @@ export default function Home() {
           </div>
         )}
         <Dashboard
-          charts={dashboardCharts}
+          charts={uploadStream.isLoading ? uploadStream.charts : dashboardCharts}
           pinnedCharts={pinnedCharts}
           onUnpinChart={handleUnpinChart}
           profile={profile}
-          briefings={briefings}
+          briefings={uploadStream.isLoading && uploadStream.briefing ? [uploadStream.briefing] : briefings}
           onConfirmBriefing={handleConfirmBriefing}
           onChartClick={handleChartClick}
+          onActionClick={handleActionClick}
+          isLoading={uploadStream.isLoading}
+          loadingMessage={uploadStream.message}
         />
       </main>
 
@@ -325,6 +410,7 @@ export default function Home() {
           streamCharts={agent.streamCharts}
           onStartAnalysis={handleStartAnalysis}
           elapsedSeconds={agent.elapsedSeconds}
+          briefingSuggestions={briefings.length > 0 ? briefings[briefings.length - 1].suggestedQuestions : []}
         />
       )}
 
