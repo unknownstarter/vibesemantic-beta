@@ -220,20 +220,102 @@ scripts/           → External Systems (Python 실행 환경)
 
 ---
 
+## Setup (새 디바이스에서 처음 시작하기)
+
+GitHub에서 클론한 뒤 아래 순서를 **모두** 완료해야 `npm run dev`가 정상 동작한다.
+디바이스 간 환경 차이로 인한 런타임 오류를 방지하기 위해 버전과 경로까지 통일한다.
+
+### 사전 요구사항 (Prerequisites)
+| 도구 | 최소 버전 | 비고 |
+|------|-----------|------|
+| Node.js | ≥ 20 (권장 22 LTS) | Next.js 16 / React 19 요구 |
+| npm | ≥ 10 | Node와 함께 설치됨 |
+| Python | ≥ 3.10 | pandas 2.x, numpy 1.24+ 호환 |
+| Git | 최신 | — |
+| C/C++ 툴체인 | — | `better-sqlite3` 네이티브 빌드용 (macOS: `xcode-select --install`, Linux: `build-essential`) |
+
+> **Windows 사용자**: WSL2(Ubuntu 22.04+) 사용 권장. 네이티브 Windows는 `better-sqlite3` 빌드 이슈 가능성.
+
+버전 확인:
+```bash
+node --version     # v20.x 이상
+npm --version      # 10.x 이상
+python3 --version  # 3.10 이상
+```
+
+### 1단계 — 저장소 클론
+```bash
+git clone <repo-url> vibesemantic-beta
+cd vibesemantic-beta
+git status              # main 브랜치, clean 상태 확인
+```
+
+### 2단계 — Node 의존성 설치
+```bash
+npm install
+```
+> 네이티브 모듈(`better-sqlite3`) 빌드 실패 시: `npm rebuild better-sqlite3`
+
+### 3단계 — Python 가상환경 + 의존성
+```bash
+python3 -m venv .venv
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
+pip install -r scripts/requirements.txt
+```
+> 설치되는 패키지: `pandas`, `matplotlib`, `seaborn`, `numpy`
+
+### 4단계 — 환경변수 파일 생성
+```bash
+cp .env.local.example .env.local
+```
+그 후 `.env.local`을 열어 값을 채운다:
+- **`ANTHROPIC_API_KEY`** (필수) — https://console.anthropic.com 에서 발급
+- `PYTHON_PATH` (선택) — 시스템 Python 절대경로 지정 시. 미지정 시 `.venv/bin/python3` 자동 사용
+
+> ⚠️ `.env.local`은 `.gitignore` 대상. **절대 커밋하지 말 것.**
+
+### 5단계 — 런타임 디렉토리 확인
+아래 세 디렉토리가 존재해야 한다 (`.gitkeep`으로 저장소에 포함됨):
+```bash
+ls uploads outputs data
+```
+- `uploads/` — 업로드된 CSV (런타임 생성, gitignore)
+- `outputs/` — 생성된 차트/캐시 (런타임 생성, gitignore)
+- `data/` — SQLite DB (`sessions.db` 첫 업로드 시 자동 생성)
+
+### 6단계 — 자체 검증 (필수)
+```bash
+npm run lint        # 0 warnings
+npm run build       # 빌드 성공
+npm test            # 통합 포함 전체 테스트 통과
+```
+세 명령이 모두 성공해야 환경이 정상적으로 셋업된 것이다.
+
+### 7단계 — 개발 서버 실행
+```bash
+npm run dev
+# http://localhost:3000 접속
+```
+
+### 트러블슈팅
+| 증상 | 원인 / 해결 |
+|------|-------------|
+| `Cannot find module 'better-sqlite3'` / `NODE_MODULE_VERSION` 에러 | `npm rebuild better-sqlite3`, Node 버전이 `npm install` 때와 동일한지 확인 |
+| `python3: command not found` | Python 재설치 또는 `.env.local`의 `PYTHON_PATH`에 절대경로 지정 |
+| `ModuleNotFoundError: pandas` | `.venv` 활성화 누락. `source .venv/bin/activate` 후 pip install 재실행 |
+| Claude API 401/403 | `.env.local`의 `ANTHROPIC_API_KEY` 재확인, 콘솔에서 키 활성 상태 확인 |
+| 차트 업로드 후 빈 화면 | `outputs/`, `uploads/` 쓰기 권한 확인 (`chmod -R u+w outputs uploads`) |
+| 포트 3000 충돌 | `npm run dev -- -p 3001` 또는 기존 프로세스 종료 |
+
+---
+
 ## Commands (자주 쓰는 명령어)
 
 ```bash
-npm run dev          # 개발 서버 실행
-npm run build        # 프로덕션 빌드 (커밋 전 필수)
-npm run lint         # ESLint 검사
-npm test             # Vitest 단위 테스트 실행
-npm run test:watch   # Vitest watch 모드
+npm run dev           # 개발 서버 실행
+npm run build         # 프로덕션 빌드 (커밋 전 필수)
+npm run lint          # ESLint 검사 (0 warnings 기준)
+npm test              # Vitest 전체 테스트
+npm run test:watch    # Vitest watch 모드
 npm run test:coverage # 커버리지 리포트
-```
-
-### Python 환경 셋업
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r scripts/requirements.txt
 ```
